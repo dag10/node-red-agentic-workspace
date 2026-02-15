@@ -91,6 +91,65 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   echo ".env updated."
 fi
 
+# --- Set up mynodered/ directory (Node-RED flow tracking) ---
+MYNODERED_DIR="$PROJECT_DIR/mynodered"
+
+if [[ ! -d "$MYNODERED_DIR" ]]; then
+  echo "The mynodered/ directory doesn't exist yet."
+  echo "This is where your Node-RED flows will be tracked in a separate git repo."
+  echo ""
+  read -rp "Git repo URL for tracking Node-RED flows (leave empty to init a new local repo): " nodered_repo_url
+
+  if [[ -n "$nodered_repo_url" ]]; then
+    git -C "$PROJECT_DIR" submodule add "$nodered_repo_url" mynodered
+    echo ""
+    echo "Cloned $nodered_repo_url as submodule at mynodered/"
+  else
+    git init "$MYNODERED_DIR"
+    git -C "$MYNODERED_DIR" commit --allow-empty -m "Initial commit"
+    echo ""
+    echo "Initialized empty git repo at mynodered/."
+    echo "You can add a remote later by re-running init.sh."
+  fi
+  echo ""
+elif [[ -d "$MYNODERED_DIR/.git" ]] || [[ -f "$MYNODERED_DIR/.git" ]]; then
+  # Dir exists and is a git repo (or submodule with .git file)
+  if ! git -C "$MYNODERED_DIR" remote get-url origin &>/dev/null; then
+    echo "mynodered/ exists but has no remote configured."
+    echo ""
+    read -rp "Git repo URL to use as upstream remote (leave empty to skip): " nodered_repo_url
+
+    if [[ -n "$nodered_repo_url" ]]; then
+      git -C "$MYNODERED_DIR" remote add origin "$nodered_repo_url"
+
+      # Verify remote is empty before pushing
+      if git -C "$MYNODERED_DIR" ls-remote --heads origin 2>/dev/null | grep -q .; then
+        echo "ERROR: Remote repo is not empty. Please provide an empty repository." >&2
+        git -C "$MYNODERED_DIR" remote remove origin
+        exit 1
+      fi
+
+      branch=$(git -C "$MYNODERED_DIR" branch --show-current)
+      git -C "$MYNODERED_DIR" push -u origin "${branch:-main}"
+
+      # Register as a proper submodule if not already
+      if ! git -C "$PROJECT_DIR" config -f .gitmodules --get submodule.mynodered.path &>/dev/null; then
+        git -C "$PROJECT_DIR" config -f .gitmodules submodule.mynodered.path mynodered
+        git -C "$PROJECT_DIR" config -f .gitmodules submodule.mynodered.url "$nodered_repo_url"
+        git -C "$PROJECT_DIR" submodule init mynodered 2>/dev/null || true
+      fi
+
+      echo ""
+      echo "Remote added and pushed. mynodered/ registered as submodule."
+    fi
+    echo ""
+  fi
+else
+  echo "ERROR: mynodered/ exists but is not a git repository." >&2
+  echo "Please remove or rename it and re-run init.sh." >&2
+  exit 1
+fi
+
 echo ""
 echo "Verifying Home Assistant MCP connection..."
 echo ""
