@@ -88,6 +88,10 @@ Code comments with specific prefixes have different meanings and require differe
 
 **Plain `TODO:` comments** (no attribution) -- Treat like any other code comment. Do not proactively fix TODOs unless the current task specifically involves the code they describe. Do not remove them.
 
+### Git Workflow
+
+Do not commit unless explicitly asked. Stage and commit only when the user says to.
+
 ### Commit Message Format
 
 When creating git commits, use this format:
