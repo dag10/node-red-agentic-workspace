@@ -4,9 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This project is a workspace with tooling for Claude Code to be guided to interact with Home Assistant and create/modify Node-RED automations (this part is WIP).
+This is a project with a nested subproject.
+
+**The outer project** (this repo) is a shared harness/toolset for using Claude Code to work with Node-RED automations on Home Assistant. It contains scripts, tooling, and documentation that are common to all users. Many people use this same repo with their own personal Home Assistant instances.
+
+**The inner project** (`mynodered/` submodule) is a private per-user repo that tracks an individual's Node-RED flows — essentially their entire home's automations. Each person has their own private repo for this, since the content is personal to their home setup.
 
 HA integration is available through the project MCP.
+
+### Working with automations
+
+When working on automation tasks (the inner project), agents should:
+
+1. Read both `CLAUDE.md` (this file) and `mynodered/CLAUDE.md` (if it exists). The inner CLAUDE.md may contain context about the user's personal home setup, naming conventions, or automation preferences.
+2. Read `mynodered/docs/overview.md` for a high-level understanding of the automations.
+3. Load `docs/exploring-nodered-json.md` for guidance on using the flow analysis tools.
+
+## Project structure
+
+### Outer project (this repo)
+
+- `init.sh` - First-time setup: configures `.env`, sets up the `mynodered/` submodule, and verifies the HA MCP connection.
+- `download-flows.sh` - User-facing script to download the latest Node-RED flows from Home Assistant into `mynodered/nodered.json` and commit them to the submodule. Users should run this at the start of a session before working on automations.
+- `helper-scripts/` - Shell scripts called by Claude or by other scripts (not intended to be called directly by humans).
+- `docs/` - Documentation for the outer project's tools and subsystems.
+- `/.env` - Gitignored file containing settings for talking to Home Assistant.
+
+### Helper Scripts
+
+- `helper-scripts/check-env.sh` - Sourced by other scripts to load `.env` and verify required env vars are set.
+- `helper-scripts/run-hass-mcp.sh` - Runs the Home Assistant MCP server (used by the project MCP config).
+- `helper-scripts/download-nodered-flows.sh [output.json]` - Downloads the full Node-RED flow export from HA to a JSON file (default: `mynodered/nodered.json`). Output is normalized for stable diffs. Requires `uv`.
+- `helper-scripts/normalize-json.sh <file.json> [output.json]` - Normalizes a JSON file (sorts keys, sorts arrays of objects by `id`). In-place if no output path given.
+- `helper-scripts/check-nodered-flows-unchanged.sh <flows.json>` - Downloads live flows and diffs against the given file. Exits 0 if they match, 1 if diverged (prints diff to stderr). Use before uploading modified flows to catch concurrent edits.
+- `helper-scripts/summarize-nodered-flows.sh <flows.json>` - Prints a summary of flows and subflows from a flows JSON file.
+- `helper-scripts/summarize-nodered-flows-diff.sh <before.json> <after.json>` or `--git <flows.json>` - Diff-aware summary comparing two flow versions. Includes everything from the regular summary (with [NEW]/[MODIFIED] tags), plus detailed per-flow/subflow change breakdowns, entity reference changes, function code changes, wiring changes, and a list of which documentation files need updating. With `--git`, compares the file on disk against its last committed version.
+- `helper-scripts/query-nodered-flows.sh <flows.json> <command> [args...]` - Extracts specific subsets of a flows JSON: individual nodes, connected subgraphs, flow/group contents, subflow instances, function source code, and flexible search. Commands: `node`, `function`, `connected`, `head-nodes`, `tail-nodes`, `flow-nodes`, `group-nodes`, `subflow-nodes`, `subflow-instances`, `search`. Use `--summary` for compact one-liners. Use `--sources` with `flow-nodes`/`group-nodes` to get only entry-point nodes.
+
+### Inner project (mynodered/ submodule)
+
+The `mynodered/` directory is a git submodule containing the user's personal Node-RED data.
+
+- `mynodered/nodered.json` - The full Node-RED flows export (downloaded via `download-flows.sh`).
+- `mynodered/CLAUDE.md` - (Optional) User-specific context about their home, automations, naming conventions, or preferences. Agents working on automations should always check for and read this file.
+- `mynodered/docs/` - Documentation describing the user's automations:
+  - `docs/overview.md` - A high-level summary of all automations, based on the summary script output. Lists all flows and subflows with summary paragraphs and links to their detailed docs.
+  - `docs/flows/<flow_id>.md` - Detailed overview of each flow: all groups, source nodes within each group (and ungrouped source nodes), and a summary of downstream nodes and their effects from each source.
+  - `docs/subflows/<subflow_id>.md` - Detailed overview of each subflow: what it does, examples of where it's used, when to use it and why.
 
 ## Plans
 
@@ -27,22 +71,6 @@ were written, and whether they're a bug, still needed, or even more important th
 Two useful ways to do this, once you git blame the code to see what commit(s) it came from:
 - Read the commit description and some other changes from that commit.
 - Read the plan md file that was checked in during that commit, or the earliest commit the code originated from.
-
-## Project structure
-
-- `download-flows.sh` - User-facing script to download the latest Node-RED flows from Home Assistant into `mynodered/nodered.json` and commit them to the submodule. Users should run this at the start of a session before working on automations.
-- `helper-scripts/` - Shell scripts called by Claude or by other scripts (not intended to be called directly by humans).
-- `/.env` - Gitignored file containing settings for talking to Home Assistant.
-
-### Helper Scripts
-
-- `helper-scripts/check-env.sh` - Sourced by other scripts to load `.env` and verify required env vars are set.
-- `helper-scripts/run-hass-mcp.sh` - Runs the Home Assistant MCP server (used by the project MCP config).
-- `helper-scripts/download-nodered-flows.sh [output.json]` - Downloads the full Node-RED flow export from HA to a JSON file (default: `mynodered/nodered.json`). Output is normalized for stable diffs. Requires `uv`.
-- `helper-scripts/normalize-json.sh <file.json> [output.json]` - Normalizes a JSON file (sorts keys, sorts arrays of objects by `id`). In-place if no output path given.
-- `helper-scripts/check-nodered-flows-unchanged.sh <flows.json>` - Downloads live flows and diffs against the given file. Exits 0 if they match, 1 if diverged (prints diff to stderr). Use before uploading modified flows to catch concurrent edits.
-- `helper-scripts/summarize-nodered-flows.sh <flows.json>` - Prints a summary of flows and subflows from a flows JSON file.
-- `helper-scripts/query-nodered-flows.sh <flows.json> <command> [args...]` - Extracts specific subsets of a flows JSON: individual nodes, connected subgraphs, flow/group contents, subflow instances, function source code, and flexible search. Commands: `node`, `function`, `connected`, `head-nodes`, `tail-nodes`, `flow-nodes`, `group-nodes`, `subflow-nodes`, `subflow-instances`, `search`. Use `--summary` for compact one-liners. Use `--sources` with `flow-nodes`/`group-nodes` to get only entry-point nodes.
 
 ## Environment variables
 
