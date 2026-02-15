@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__home-assistant__get_version"
+    ]
+  }
+}
