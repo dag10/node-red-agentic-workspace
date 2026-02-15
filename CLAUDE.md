@@ -41,6 +41,7 @@ Two useful ways to do this, once you git blame the code to see what commit(s) it
 - `scripts/normalize-json.sh <file.json> [output.json]` - Normalizes a JSON file (sorts keys, sorts arrays of objects by `id`). In-place if no output path given.
 - `scripts/check-nodered-flows-unchanged.sh <flows.json>` - Downloads live flows and diffs against the given file. Exits 0 if they match, 1 if diverged (prints diff to stderr). Use before uploading modified flows to catch concurrent edits.
 - `scripts/summarize-nodered-flows.sh <flows.json>` - Prints a summary of flows and subflows from a flows JSON file.
+- `scripts/query-nodered-flows.sh <flows.json> <command> [args...]` - Extracts specific subsets of a flows JSON: individual nodes, connected subgraphs, flow/group contents, subflow instances, function source code, and flexible search. Commands: `node`, `function`, `connected`, `head-nodes`, `tail-nodes`, `flow-nodes`, `group-nodes`, `subflow-nodes`, `subflow-instances`, `search`. Use `--summary` for compact one-liners. Use `--sources` with `flow-nodes`/`group-nodes` to get only entry-point nodes.
 
 ## Environment variables
 
@@ -50,6 +51,17 @@ Two useful ways to do this, once you git blame the code to see what commit(s) it
 The env variables are loaded from .env for all scripts in the scripts dir. Env vars already declared when invoking a script take precedence.
 
 If you add/change env vars, make sure you update scripts/check-env.sh and init.sh.
+
+## Deep-dive documentation
+
+The `docs/` directory contains detailed guides for specific tools and subsystems. These are
+too long for CLAUDE.md but essential for effective use. Load the relevant doc when you start
+a task involving that system.
+
+- `docs/exploring-nodered-json.md` — How to use `summarize-nodered-flows.sh` and
+  `query-nodered-flows.sh` to navigate Node-RED flows. **Load when:** working with
+  `mynodered/nodered.json`, planning or implementing flow changes, or investigating
+  automations.
 
 ## Style guidelines
 

@@ -1,0 +1,537 @@
+"""Query and extract subsets of a Node-RED flows JSON file.
+
+Supports extracting individual nodes, connected subgraphs, flow contents,
+subflow instances, group contents, function source code, and flexible
+search — so agents can inspect specific parts of a large flows file
+without reading the whole thing.
+
+Usage: Called by query-nodered-flows.sh, not directly.
+
+# NOTE: If you change this script's commands, flags, output format, or
+# behavior, update docs/exploring-nodered-json.md to match.
+"""
+
+import json
+import re
+import sys
+from collections import defaultdict, deque
+
+
+def build_index(data):
+    by_id = {}
+    by_z = defaultdict(list)
+    forward = defaultdict(list)  # source_id -> [(target_id, port)]
+    backward = defaultdict(list)  # target_id -> [(source_id, port)]
+    link_out_to_in = defaultdict(list)  # link out (mode=link) id -> [link in ids]
+    link_in_to_out = defaultdict(list)  # link in id -> [link out (mode=link) ids]
+    link_call_to_in = defaultdict(list)  # link call id -> [link in ids]
+    link_in_to_call = defaultdict(list)  # link in id -> [link call ids]
+    subflow_instances = defaultdict(list)  # subflow def id -> [instance nodes]
+    group_members = defaultdict(list)  # group id -> [node ids]
+
+    for node in data:
+        nid = node.get("id")
+        if not nid:
+            continue
+        by_id[nid] = node
+
+        z = node.get("z")
+        if z:
+            by_z[z].append(node)
+
+        for port_idx, targets in enumerate(node.get("wires", [])):
+            for target_id in targets:
+                forward[nid].append((target_id, port_idx))
+                backward[target_id].append((nid, port_idx))
+
+        ntype = node.get("type", "")
+        if ntype == "link out" and node.get("mode") == "link":
+            for target_id in node.get("links", []):
+                link_out_to_in[nid].append(target_id)
+                link_in_to_out[target_id].append(nid)
+        elif ntype == "link call":
+            for target_id in node.get("links", []):
+                link_call_to_in[nid].append(target_id)
+                link_in_to_call[target_id].append(nid)
+        elif ntype.startswith("subflow:"):
+            sf_id = ntype[len("subflow:"):]
+            subflow_instances[sf_id].append(node)
+
+        if ntype == "group":
+            for member_id in node.get("nodes", []):
+                group_members[nid].append(member_id)
+
+    return {
+        "by_id": by_id,
+        "by_z": by_z,
+        "forward": forward,
+        "backward": backward,
+        "link_out_to_in": link_out_to_in,
+        "link_in_to_out": link_in_to_out,
+        "link_call_to_in": link_call_to_in,
+        "link_in_to_call": link_in_to_call,
+        "subflow_instances": subflow_instances,
+        "group_members": group_members,
+    }
+
+
+def collect_group_node_ids(group_id, idx):
+    """All node IDs in a group, recursively including nested groups."""
+    ids = []
+    for member_id in idx["group_members"].get(group_id, []):
+        ids.append(member_id)
+        member = idx["by_id"].get(member_id, {})
+        if member.get("type") == "group":
+            ids.extend(collect_group_node_ids(member_id, idx))
+    return ids
+
+
+def bfs_forward(start_id, idx, follow_links):
+    visited = {start_id}
+    queue = deque()
+    result = []
+
+    for target_id, _port in idx["forward"].get(start_id, []):
+        if target_id not in visited:
+            visited.add(target_id)
+            queue.append(target_id)
+
+    if follow_links:
+        node = idx["by_id"].get(start_id, {})
+        if node.get("type") == "link out" and node.get("mode") == "link":
+            for target_id in idx["link_out_to_in"].get(start_id, []):
+                if target_id not in visited:
+                    visited.add(target_id)
+                    queue.append(target_id)
+        elif node.get("type") == "link call":
+            for target_id in idx["link_call_to_in"].get(start_id, []):
+                if target_id not in visited:
+                    visited.add(target_id)
+                    queue.append(target_id)
+
+    while queue:
+        nid = queue.popleft()
+        result.append(nid)
+        for target_id, _port in idx["forward"].get(nid, []):
+            if target_id not in visited:
+                visited.add(target_id)
+                queue.append(target_id)
+        if follow_links:
+            node = idx["by_id"].get(nid, {})
+            ntype = node.get("type", "")
+            if ntype == "link out" and node.get("mode") == "link":
+                for target_id in idx["link_out_to_in"].get(nid, []):
+                    if target_id not in visited:
+                        visited.add(target_id)
+                        queue.append(target_id)
+            elif ntype == "link call":
+                for target_id in idx["link_call_to_in"].get(nid, []):
+                    if target_id not in visited:
+                        visited.add(target_id)
+                        queue.append(target_id)
+
+    return result
+
+
+def bfs_backward(start_id, idx, follow_links):
+    visited = {start_id}
+    queue = deque()
+    result = []
+
+    for source_id, _port in idx["backward"].get(start_id, []):
+        if source_id not in visited:
+            visited.add(source_id)
+            queue.append(source_id)
+
+    if follow_links:
+        node = idx["by_id"].get(start_id, {})
+        if node.get("type") == "link in":
+            for source_id in idx["link_in_to_out"].get(start_id, []):
+                if source_id not in visited:
+                    visited.add(source_id)
+                    queue.append(source_id)
+            for source_id in idx["link_in_to_call"].get(start_id, []):
+                if source_id not in visited:
+                    visited.add(source_id)
+                    queue.append(source_id)
+
+    while queue:
+        nid = queue.popleft()
+        result.append(nid)
+        for source_id, _port in idx["backward"].get(nid, []):
+            if source_id not in visited:
+                visited.add(source_id)
+                queue.append(source_id)
+        if follow_links:
+            node = idx["by_id"].get(nid, {})
+            if node.get("type") == "link in":
+                for source_id in idx["link_in_to_out"].get(nid, []):
+                    if source_id not in visited:
+                        visited.add(source_id)
+                        queue.append(source_id)
+                for source_id in idx["link_in_to_call"].get(nid, []):
+                    if source_id not in visited:
+                        visited.add(source_id)
+                        queue.append(source_id)
+
+    return result
+
+
+def has_incoming(nid, idx, follow_links):
+    if idx["backward"].get(nid):
+        return True
+    if follow_links:
+        node = idx["by_id"].get(nid, {})
+        if node.get("type") == "link in":
+            if idx["link_in_to_out"].get(nid) or idx["link_in_to_call"].get(nid):
+                return True
+    return False
+
+
+def has_outgoing(nid, idx, follow_links):
+    wires = idx["by_id"].get(nid, {}).get("wires", [])
+    for targets in wires:
+        if targets:
+            return True
+    if follow_links:
+        node = idx["by_id"].get(nid, {})
+        ntype = node.get("type", "")
+        if ntype == "link out" and node.get("mode") == "link":
+            if idx["link_out_to_in"].get(nid):
+                return True
+        elif ntype == "link call":
+            if idx["link_call_to_in"].get(nid):
+                return True
+    return False
+
+
+def get_scope_sources(scope_node_ids, idx, follow_links):
+    """Nodes in the scope whose incoming connections are all from outside the scope.
+
+    "Source" here means entry point: a node that either receives input from
+    outside the scope or receives no input at all (event trigger). Metadata
+    types (group, comment, tab, subflow defs) are excluded.
+    """
+    scope_set = set(scope_node_ids)
+    sources = []
+    for nid in scope_node_ids:
+        node = idx["by_id"].get(nid, {})
+        ntype = node.get("type", "")
+        if ntype in ("group", "comment", "tab", "subflow"):
+            continue
+        has_internal = False
+        for source_id, _port in idx["backward"].get(nid, []):
+            if source_id in scope_set:
+                has_internal = True
+                break
+        if not has_internal and follow_links and ntype == "link in":
+            for source_id in idx["link_in_to_out"].get(nid, []):
+                if source_id in scope_set:
+                    has_internal = True
+                    break
+            if not has_internal:
+                for source_id in idx["link_in_to_call"].get(nid, []):
+                    if source_id in scope_set:
+                        has_internal = True
+                        break
+        if not has_internal:
+            sources.append(nid)
+    return sources
+
+
+def format_summary(node, idx):
+    nid = node["id"]
+    ntype = node.get("type", "")
+    name = node.get("name", "")
+    wire_count = sum(len(t) for t in node.get("wires", []))
+    parts = [nid, ntype, f'"{name}"', f"wires:{wire_count}"]
+    gid = node.get("g")
+    if gid:
+        group = idx["by_id"].get(gid, {})
+        group_name = group.get("name", "")
+        parts.append(f'group:"{group_name}"')
+    return "  ".join(parts)
+
+
+def output_nodes(nodes, idx, summary=False):
+    for node in nodes:
+        if summary:
+            print(format_summary(node, idx))
+        else:
+            print(json.dumps(node, separators=(",", ":")))
+
+
+def die(msg):
+    print(f"Error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_node(idx, args):
+    if not args:
+        die("node requires an <id> argument")
+    nid = args[0]
+    node = idx["by_id"].get(nid)
+    if not node:
+        die(f"node not found: {nid}")
+    print(json.dumps(node, indent=2))
+
+
+def cmd_function(idx, args):
+    if not args:
+        die("function requires an <id> argument")
+    nid = args[0]
+    node = idx["by_id"].get(nid)
+    if not node:
+        die(f"node not found: {nid}")
+    if node.get("type") != "function":
+        die(f"node {nid} is type '{node.get('type')}', not 'function'")
+    func = node.get("func", "")
+    if func:
+        print(func)
+    initialize = node.get("initialize", "")
+    if initialize:
+        print("\n// --- Setup (initialize) ---")
+        print(initialize)
+    finalize = node.get("finalize", "")
+    if finalize:
+        print("\n// --- Cleanup (finalize) ---")
+        print(finalize)
+
+
+def cmd_connected(idx, args):
+    if not args:
+        die("connected requires an <id> argument")
+    nid = args[0]
+    if nid not in idx["by_id"]:
+        die(f"node not found: {nid}")
+
+    flags = set(args[1:])
+    summary = "--summary" in flags
+    follow_links = "--dont-follow-links" not in flags
+    forward_only = "--forward" in flags
+    backward_only = "--backward" in flags
+
+    backward_ids = []
+    forward_ids = []
+    if not forward_only:
+        backward_ids = bfs_backward(nid, idx, follow_links)
+    if not backward_only:
+        forward_ids = bfs_forward(nid, idx, follow_links)
+
+    # backward reversed (root→start order), then start, then forward (start→leaf order)
+    ordered_ids = list(reversed(backward_ids)) + [nid] + forward_ids
+    nodes = [idx["by_id"][i] for i in ordered_ids if i in idx["by_id"]]
+    output_nodes(nodes, idx, summary)
+
+
+def cmd_head_nodes(idx, args):
+    if not args:
+        die("head-nodes requires an <id> argument")
+    nid = args[0]
+    if nid not in idx["by_id"]:
+        die(f"node not found: {nid}")
+
+    flags = set(args[1:])
+    summary = "--summary" in flags
+    follow_links = "--dont-follow-links" not in flags
+
+    backward_ids = bfs_backward(nid, idx, follow_links)
+    # Include start node itself if it has no incoming
+    candidates = backward_ids + [nid]
+    heads = [i for i in candidates if not has_incoming(i, idx, follow_links)]
+    nodes = [idx["by_id"][i] for i in heads if i in idx["by_id"]]
+    output_nodes(nodes, idx, summary)
+
+
+def cmd_tail_nodes(idx, args):
+    if not args:
+        die("tail-nodes requires an <id> argument")
+    nid = args[0]
+    if nid not in idx["by_id"]:
+        die(f"node not found: {nid}")
+
+    flags = set(args[1:])
+    summary = "--summary" in flags
+    follow_links = "--dont-follow-links" not in flags
+
+    forward_ids = bfs_forward(nid, idx, follow_links)
+    candidates = forward_ids + [nid]
+    tails = [i for i in candidates if not has_outgoing(i, idx, follow_links)]
+    nodes = [idx["by_id"][i] for i in tails if i in idx["by_id"]]
+    output_nodes(nodes, idx, summary)
+
+
+def cmd_flow_nodes(idx, args):
+    if not args:
+        die("flow-nodes requires an <id> argument")
+    flow_id = args[0]
+    if flow_id not in idx["by_id"]:
+        die(f"flow not found: {flow_id}")
+    flags = set(args[1:])
+    summary = "--summary" in flags
+    sources_only = "--sources" in flags
+    follow_links = "--dont-follow-links" not in flags
+
+    nodes = idx["by_z"].get(flow_id, [])
+    if sources_only:
+        all_ids = [n["id"] for n in nodes]
+        source_ids = set(get_scope_sources(all_ids, idx, follow_links))
+        nodes = [n for n in nodes if n["id"] in source_ids]
+    nodes = sorted(nodes, key=lambda n: (n.get("type", ""), n.get("name", "")))
+    output_nodes(nodes, idx, summary)
+
+
+def cmd_group_nodes(idx, args):
+    if not args:
+        die("group-nodes requires an <id> argument")
+    group_id = args[0]
+    node = idx["by_id"].get(group_id)
+    if not node or node.get("type") != "group":
+        die(f"group not found: {group_id}")
+    flags = set(args[1:])
+    summary = "--summary" in flags
+    sources_only = "--sources" in flags
+    follow_links = "--dont-follow-links" not in flags
+
+    member_ids = collect_group_node_ids(group_id, idx)
+    if sources_only:
+        source_ids = set(get_scope_sources(member_ids, idx, follow_links))
+        member_ids = [i for i in member_ids if i in source_ids]
+    nodes = [idx["by_id"][i] for i in member_ids if i in idx["by_id"]]
+    nodes = sorted(nodes, key=lambda n: (n.get("type", ""), n.get("name", "")))
+    output_nodes(nodes, idx, summary)
+
+
+def cmd_subflow_nodes(idx, args):
+    if not args:
+        die("subflow-nodes requires an <id> argument")
+    sf_id = args[0]
+    node = idx["by_id"].get(sf_id)
+    if not node or node.get("type") != "subflow":
+        die(f"subflow definition not found: {sf_id}")
+    flags = set(args[1:])
+    summary = "--summary" in flags
+    nodes = sorted(idx["by_z"].get(sf_id, []), key=lambda n: (n.get("type", ""), n.get("name", "")))
+    output_nodes(nodes, idx, summary)
+
+
+def cmd_subflow_instances(idx, args):
+    if not args:
+        die("subflow-instances requires an <id> argument")
+    sf_id = args[0]
+    node = idx["by_id"].get(sf_id)
+    if not node or node.get("type") != "subflow":
+        die(f"subflow definition not found: {sf_id}")
+    flags = set(args[1:])
+    summary = "--summary" in flags
+    instances = idx["subflow_instances"].get(sf_id, [])
+    output_nodes(instances, idx, summary)
+
+
+def cmd_search(idx, args):
+    type_filter = None
+    name_filter = None
+    flow_filter = None
+    summary = False
+    i = 0
+    while i < len(args):
+        if args[i] == "--type" and i + 1 < len(args):
+            type_filter = args[i + 1]
+            i += 2
+        elif args[i] == "--name" and i + 1 < len(args):
+            name_filter = args[i + 1]
+            i += 2
+        elif args[i] == "--flow" and i + 1 < len(args):
+            flow_filter = args[i + 1]
+            i += 2
+        elif args[i] == "--summary":
+            summary = True
+            i += 1
+        else:
+            die(f"unknown search argument: {args[i]}")
+
+    if name_filter:
+        try:
+            name_re = re.compile(name_filter, re.IGNORECASE)
+        except re.error as e:
+            die(f"invalid regex for --name: {e}")
+
+    results = []
+    for node in idx["by_id"].values():
+        if type_filter and node.get("type") != type_filter:
+            continue
+        if name_filter:
+            node_name = node.get("name", "")
+            if not name_re.search(node_name):
+                continue
+        if flow_filter and node.get("z") != flow_filter:
+            continue
+        results.append(node)
+
+    results.sort(key=lambda n: (n.get("z", ""), n.get("type", ""), n.get("name", "")))
+    output_nodes(results, idx, summary)
+
+
+COMMANDS = {
+    "node": cmd_node,
+    "function": cmd_function,
+    "connected": cmd_connected,
+    "head-nodes": cmd_head_nodes,
+    "tail-nodes": cmd_tail_nodes,
+    "flow-nodes": cmd_flow_nodes,
+    "group-nodes": cmd_group_nodes,
+    "subflow-nodes": cmd_subflow_nodes,
+    "subflow-instances": cmd_subflow_instances,
+    "search": cmd_search,
+}
+
+USAGE = """\
+Usage: query-nodered-flows.sh <flows.json> <command> [args...]
+
+Commands:
+  node <id>                         Single node (pretty JSON)
+  function <id>                     Print JavaScript source of a function node
+  connected <id> [flags]            All nodes connected to <id> (BFS both directions)
+  head-nodes <id> [flags]           Root nodes (no incoming) that can reach <id>
+  tail-nodes <id> [flags]           Leaf nodes (no outgoing) reachable from <id>
+  flow-nodes <id> [flags]           All nodes in a flow/tab
+  group-nodes <id> [flags]          All nodes in a group (recursive)
+  subflow-nodes <id>                All nodes in a subflow definition
+  subflow-instances <id>            All instances of a subflow
+  search [--type T] [--name P] [--flow ID]   Flexible search
+
+Shared flags:
+  --summary           Compact one-liner per node instead of JSONL
+  --dont-follow-links Don't cross link in/out/call boundaries
+                      (applies to: connected, head-nodes, tail-nodes,
+                       flow-nodes --sources, group-nodes --sources)
+
+connected-specific flags:
+  --forward           Only downstream
+  --backward          Only upstream
+
+flow-nodes / group-nodes flags:
+  --sources           Only entry-point nodes (no incoming from within scope)"""
+
+
+def main():
+    if len(sys.argv) < 3:
+        print(USAGE, file=sys.stderr)
+        sys.exit(1)
+
+    flows_file = sys.argv[1]
+    command = sys.argv[2]
+    cmd_args = sys.argv[3:]
+
+    if command not in COMMANDS:
+        die(f"unknown command: {command}\n\n{USAGE}")
+
+    with open(flows_file) as f:
+        data = json.load(f)
+
+    idx = build_index(data)
+    COMMANDS[command](idx, cmd_args)
+
+
+if __name__ == "__main__":
+    main()
