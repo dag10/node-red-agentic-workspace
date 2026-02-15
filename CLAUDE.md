@@ -30,6 +30,7 @@ Two useful ways to do this, once you git blame the code to see what commit(s) it
 
 ## Project structure
 
+- `download-flows.sh` - User-facing script to download the latest Node-RED flows from Home Assistant into `mynodered/nodered.json` and commit them to the submodule. Users should run this at the start of a session before working on automations.
 - `helper-scripts/` - Shell scripts called by Claude or by other scripts (not intended to be called directly by humans).
 - `/.env` - Gitignored file containing settings for talking to Home Assistant.
 
