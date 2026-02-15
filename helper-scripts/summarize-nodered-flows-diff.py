@@ -792,7 +792,7 @@ def print_affected_docs(tabs, subflows, diff, after_by_z):
         needs_overview = True
 
     if needs_overview:
-        print("  docs/overview.md — flow/subflow list or names changed")
+        print("  CLAUDE.md — flow/subflow list or names changed")
 
     for fid, label, reason in flow_docs:
         print(f"  docs/flows/{fid}.md — {label} ({reason})")

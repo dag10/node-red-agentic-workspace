@@ -130,9 +130,13 @@ or node to investigate, use these commands to get the details.
   per line). Pipe to `jq` for formatting or field extraction.
 - **`--summary` flag**: One-liner per node:
   `<id>  <type>  "<name>"  wires:<n>  [group:"<group>"]`
+- **`--full` flag**: Pretty-printed JSON array containing all matching nodes
+  with full detail. Use this to load an entire flow or subflow into context
+  when you need to understand all node configurations at once.
 
-Use `--summary` when you want a quick overview. Use default JSONL when you need
-to inspect full node data or pipe into other tools.
+Use `--summary` when you want a quick overview. Use `--full` when you want all
+node data in a readable format (e.g., loading a whole flow into context). Use
+default JSONL when piping into other tools.
 
 ### Commands reference
 
@@ -209,12 +213,14 @@ All nodes on a flow/tab. The ID is the tab's ID from the summary.
 ```
 query-nodered-flows.sh flows.json flow-nodes d5bd27f8e3f4b6b4 --summary
 query-nodered-flows.sh flows.json flow-nodes d5bd27f8e3f4b6b4 --sources --summary
+query-nodered-flows.sh flows.json flow-nodes d5bd27f8e3f4b6b4 --full
 ```
 
 Flags:
 - `--sources`: Only entry-point nodes — nodes with no incoming connections from
   other nodes within the same flow. These are the flow's triggers and external
   inputs.
+- `--full`: All nodes as a pretty-printed JSON array.
 - `--summary`: Compact one-liners.
 
 #### group-nodes \<id\> [flags]
@@ -233,13 +239,14 @@ Flags:
   from outside the group.
 - `--summary`: Compact one-liners.
 
-#### subflow-nodes \<id\>
+#### subflow-nodes \<id\> [flags]
 
 All internal nodes of a subflow definition. The ID is the subflow's definition
 ID (not an instance ID).
 
 ```
 query-nodered-flows.sh flows.json subflow-nodes 886281ab0c2f1008 --summary
+query-nodered-flows.sh flows.json subflow-nodes 886281ab0c2f1008 --full
 ```
 
 #### subflow-instances \<id\>

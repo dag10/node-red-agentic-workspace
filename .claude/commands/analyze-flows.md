@@ -48,6 +48,30 @@ The output is large. Don't read every section linearly — work from the bottom 
 For each file in your AFFECTED DOCUMENTATION work list, investigate the flow or
 subflow using the query tool, then write or update the doc.
 
+### MD5
+
+When you finish updating any particular md file, make sure it has a line somewhere indicating the nodered.json md5 it was generated with at the time:
+```
+MD5 (nodered.json) = 4aea86e6acef86453726d70b983444c3
+```
+
+And accordingly, whenever you're about to start tackling analyizing the nodered.json to generate a paritcular affected documenation file, first check to see if it has a nodered.json MD5 hash in it. It might not, and that's fine. But if it does, and it matches the current MD5 of the json file you're analyzing on-disk, skip updating that md file! This means there was previously a partial attempt on analyzing changes to the nodered.json file and it got interrupted (an error, or the Claude usage limit arrived). We don't need to regenerate it.
+
+But also note, just because a file has an MD5 has that doesn't match ours, doesn't mean we have to update it if it's not one of the AFFECTED DOCUMENTS. The MD5's only purpose is to skip re-analyzing for that particular file in the case of a partial /analyze-flows run.
+
+### Required context for subagents
+
+Every subagent prompt MUST start with these instructions (before any flow-specific
+content):
+
+1. **Read `docs/exploring-nodered-json.md`** — this is their guide to using the
+   query tool. Without it they'll fumble with commands and flags.
+2. **Load all nodes first** — run `flow-nodes <id> --full` (or `subflow-nodes
+   <id> --full`) as the very first investigation step, before any targeted queries.
+3. **`helper-scripts/get-ha-script.sh <name>`** — when the flow calls any HA
+   script (service calls to `script.*`), use this to dump the script's YAML
+   and describe what it does in the doc.
+
 ### Node IDs are documentation anchors
 
 Pepper node IDs liberally throughout all documentation. Every node mentioned by name
@@ -66,11 +90,18 @@ Use the query tool at `helper-scripts/query-nodered-flows.sh mynodered/nodered.j
 
 For a flow you need to document (whether new or modified):
 
-1. Get the full group layout and entry points:
+1. **Load all nodes into context first:**
+   ```
+   query-nodered-flows.sh ... flow-nodes <flow_id> --full
+   ```
+   This dumps every node in the flow as a pretty-printed JSON array. Read through
+   it to build a mental model of the entire flow before drilling into specifics.
+
+2. Get the group layout and entry points:
    ```
    query-nodered-flows.sh ... flow-nodes <flow_id> --sources --summary
    ```
-2. For each group, get its entry points and trace downstream:
+3. For each group, get its entry points and trace downstream:
    ```
    query-nodered-flows.sh ... group-nodes <group_id> --sources --summary
    query-nodered-flows.sh ... connected <source_id> --forward --summary
@@ -96,26 +127,48 @@ parts that changed.
 
 ### Investigating a subflow
 
-1. Look inside the subflow:
+1. **Load all nodes into context first:**
    ```
-   query-nodered-flows.sh ... subflow-nodes <subflow_id> --summary
+   query-nodered-flows.sh ... subflow-nodes <subflow_id> --full
    ```
-2. Find where it's used:
+2. Look at the summary and find where it's used:
    ```
    query-nodered-flows.sh ... subflow-instances <subflow_id> --summary
    ```
 3. Inspect key internal nodes for behavior details.
 
-### Doc format: `mynodered/docs/overview.md`
+### Doc format: `mynodered/CLAUDE.md`
 
-A high-level summary of the entire automation setup. Structure:
+A high-level summary of the entire automation setup, in addition to
+other user content.
 
-- One-paragraph introduction summarizing the user's automation approach (update this
-  based on any user context from `mynodered/CLAUDE.md`).
-- **Flows** section: list every flow with its ID, a 1-3 sentence summary of what it
-  does, and a link to its detailed doc (`flows/<flow_id>.md`).
-- **Subflows** section: list every subflow with its ID, a 1-2 sentence summary, and
-  a link to its detailed doc (`subflows/<subflow_id>.md`).
+Structure:
+
+```markdown
+# [ title ]
+
+...
+
+## [ some header ]
+
+...
+
+## Analysis
+
+(One-paragraph introduction summarizing the user's automation approach. Update this based on any user context elsewhere in this file.)
+
+### Flows
+
+(list every flow with its ID, a 1-3 sentence summary of what it does, and a link to its detailed doc i.e. `flows/<flow_id>.md`)
+
+### Subflows
+
+(list every subflow with its ID, a 1-2 sentence summary, and a link to its detailed doc i.e. `subflows/<subflow_id>.md`)
+
+## [ other headers ]
+
+...
+```
 
 When updating an existing overview, preserve summaries for unchanged flows/subflows.
 Add entries for new ones, remove entries for deleted ones, and revise summaries for
@@ -160,7 +213,7 @@ Before finishing, verify:
 
 - [ ] Every flow listed in the diff summary has a corresponding doc file.
 - [ ] Every subflow listed in the diff summary has a corresponding doc file.
-- [ ] `overview.md` lists all flows and subflows with accurate summaries.
+- [ ] `mynodered/CLAUDE.md` lists all flows and subflows with accurate summaries.
 - [ ] Node IDs appear inline throughout the prose (not just in lists) — every node,
       group, and subflow instance mentioned by name also has its ID.
 - [ ] Entity IDs mentioned in the docs match what's actually in the flows.

@@ -54,11 +54,14 @@ read -rp "Would you like to analyze the changes? [Y/n] " analyze
 analyze="${analyze:-Y}"
 if [[ "$analyze" =~ ^[Yy]$ ]]; then
   echo ""
+  cd "$PROJECT_DIR"
   claude \
+    --allow-dangerously-skip-permissions \
     --allowedTools "Bash(helper-scripts/*)" \
     --allowedTools "Bash(bash helper-scripts/*)" \
     --allowedTools "Bash(mkdir -p mynodered/*)" \
     --allowedTools "Bash(cp mynodered/nodered.json mynodered/nodered-analyzed.json)" \
+    --allowedTools "Bash(md5 mynodered/nodered.json)" \
     --allowedTools "Bash(git -C mynodered add nodered-analyzed.json)" \
     --allowedTools "Write" \
     --allowedTools "Edit" \

@@ -16,8 +16,7 @@ HA integration is available through the project MCP.
 
 When working on automation tasks (the inner project), agents should:
 
-1. Read both `CLAUDE.md` (this file) and `mynodered/CLAUDE.md` (if it exists). The inner CLAUDE.md may contain context about the user's personal home setup, naming conventions, or automation preferences.
-2. Read `mynodered/docs/overview.md` for a high-level understanding of the automations.
+1. Read both `CLAUDE.md` (this file) and `mynodered/CLAUDE.md` (if it exists). The inner CLAUDE.md may contain context about the user's personal home setup, naming conventions, or automation preferences. It'll also have a list of all docs in docs/flows and docs/subflows.
 3. Load `docs/exploring-nodered-json.md` for guidance on using the flow analysis tools.
 
 ## Project structure
@@ -39,7 +38,7 @@ When working on automation tasks (the inner project), agents should:
 - `helper-scripts/check-nodered-flows-unchanged.sh <flows.json>` - Downloads live flows and diffs against the given file. Exits 0 if they match, 1 if diverged (prints diff to stderr). Use before uploading modified flows to catch concurrent edits.
 - `helper-scripts/summarize-nodered-flows.sh <flows.json>` - Prints a summary of flows and subflows from a flows JSON file.
 - `helper-scripts/summarize-nodered-flows-diff.sh <before.json> <after.json>` or `--git <flows.json>` - Diff-aware summary comparing two flow versions. Includes everything from the regular summary (with [NEW]/[MODIFIED] tags), plus detailed per-flow/subflow change breakdowns, entity reference changes, function code changes, wiring changes, and a list of which documentation files need updating. With `--git`, compares the file on disk against its last committed version.
-- `helper-scripts/query-nodered-flows.sh <flows.json> <command> [args...]` - Extracts specific subsets of a flows JSON: individual nodes, connected subgraphs, flow/group contents, subflow instances, function source code, and flexible search. Commands: `node`, `function`, `connected`, `head-nodes`, `tail-nodes`, `flow-nodes`, `group-nodes`, `subflow-nodes`, `subflow-instances`, `search`. Use `--summary` for compact one-liners. Use `--sources` with `flow-nodes`/`group-nodes` to get only entry-point nodes.
+- `helper-scripts/query-nodered-flows.sh <flows.json> <command> [args...]` - Extracts specific subsets of a flows JSON: individual nodes, connected subgraphs, flow/group contents, subflow instances, function source code, and flexible search. Commands: `node`, `function`, `connected`, `head-nodes`, `tail-nodes`, `flow-nodes`, `group-nodes`, `subflow-nodes`, `subflow-instances`, `search`. Use `--summary` for compact one-liners. Use `--full` for a pretty-printed JSON array of all matching nodes. Use `--sources` with `flow-nodes`/`group-nodes` to get only entry-point nodes.
 - `helper-scripts/get-ha-script.sh <script_name>` - Dumps the YAML definition of a Home Assistant script (the classic HA YAML scripts, not Node-RED flows). Accepts either `script.foo` or just `foo`. Use this when a Node-RED flow calls out to an HA script (via `script.turn_on` or similar) and you need to understand what that script does. Read-only — this project does not modify HA scripts.
 
 ### Inner project (mynodered/ submodule)
@@ -47,9 +46,8 @@ When working on automation tasks (the inner project), agents should:
 The `mynodered/` directory is a git submodule containing the user's personal Node-RED data.
 
 - `mynodered/nodered.json` - The full Node-RED flows export (downloaded via `download-flows.sh`).
-- `mynodered/CLAUDE.md` - (Optional) User-specific context about their home, automations, naming conventions, or preferences. Agents working on automations should always check for and read this file.
+- `mynodered/CLAUDE.md` - User-specific context about their home, automations, naming conventions, or preferences. Agents working on automations should always check for and read this file. Also includes a high-level summary of all automations, based on the summary script output. Lists all flows and subflows with summary paragraphs and links to their detailed docs.
 - `mynodered/docs/` - Documentation describing the user's automations:
-  - `docs/overview.md` - A high-level summary of all automations, based on the summary script output. Lists all flows and subflows with summary paragraphs and links to their detailed docs.
   - `docs/flows/<flow_id>.md` - Detailed overview of each flow: all groups, source nodes within each group (and ungrouped source nodes), and a summary of downstream nodes and their effects from each source.
   - `docs/subflows/<subflow_id>.md` - Detailed overview of each subflow: what it does, examples of where it's used, when to use it and why.
 
@@ -84,7 +82,7 @@ If you add/change env vars, make sure you update helper-scripts/check-env.sh and
 
 ## Deep-dive documentation
 
-The `docs/` directory contains detailed guides for specific tools and subsystems. These are
+The outer `docs/` directory contains detailed guides for specific tools and subsystems. These are
 too long for CLAUDE.md but essential for effective use. Load the relevant doc when you start
 a task involving that system.
 
@@ -92,6 +90,8 @@ a task involving that system.
   `query-nodered-flows.sh` to navigate Node-RED flows. **Load when:** working with
   `mynodered/nodered.json`, planning or implementing flow changes, or investigating
   automations.
+
+The inner `mynodered/docs/` directory contains detailed info about the user's node-red automations. There's deep-dive docs at the top level for certain topics, and docs for all flows and subflows known.
 
 ## Style guidelines
 

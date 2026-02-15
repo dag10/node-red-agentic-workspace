@@ -253,11 +253,14 @@ def format_summary(node, idx):
     return "  ".join(parts)
 
 
-def output_nodes(nodes, idx, summary=False):
-    for node in nodes:
-        if summary:
+def output_nodes(nodes, idx, summary=False, full=False):
+    if full:
+        print(json.dumps(nodes, indent=2))
+    elif summary:
+        for node in nodes:
             print(format_summary(node, idx))
-        else:
+    else:
+        for node in nodes:
             print(json.dumps(node, separators=(",", ":")))
 
 
@@ -307,6 +310,7 @@ def cmd_connected(idx, args):
 
     flags = set(args[1:])
     summary = "--summary" in flags
+    full = "--full" in flags
     follow_links = "--dont-follow-links" not in flags
     forward_only = "--forward" in flags
     backward_only = "--backward" in flags
@@ -321,7 +325,7 @@ def cmd_connected(idx, args):
     # backward reversed (root→start order), then start, then forward (start→leaf order)
     ordered_ids = list(reversed(backward_ids)) + [nid] + forward_ids
     nodes = [idx["by_id"][i] for i in ordered_ids if i in idx["by_id"]]
-    output_nodes(nodes, idx, summary)
+    output_nodes(nodes, idx, summary, full)
 
 
 def cmd_head_nodes(idx, args):
@@ -333,6 +337,7 @@ def cmd_head_nodes(idx, args):
 
     flags = set(args[1:])
     summary = "--summary" in flags
+    full = "--full" in flags
     follow_links = "--dont-follow-links" not in flags
 
     backward_ids = bfs_backward(nid, idx, follow_links)
@@ -340,7 +345,7 @@ def cmd_head_nodes(idx, args):
     candidates = backward_ids + [nid]
     heads = [i for i in candidates if not has_incoming(i, idx, follow_links)]
     nodes = [idx["by_id"][i] for i in heads if i in idx["by_id"]]
-    output_nodes(nodes, idx, summary)
+    output_nodes(nodes, idx, summary, full)
 
 
 def cmd_tail_nodes(idx, args):
@@ -352,13 +357,14 @@ def cmd_tail_nodes(idx, args):
 
     flags = set(args[1:])
     summary = "--summary" in flags
+    full = "--full" in flags
     follow_links = "--dont-follow-links" not in flags
 
     forward_ids = bfs_forward(nid, idx, follow_links)
     candidates = forward_ids + [nid]
     tails = [i for i in candidates if not has_outgoing(i, idx, follow_links)]
     nodes = [idx["by_id"][i] for i in tails if i in idx["by_id"]]
-    output_nodes(nodes, idx, summary)
+    output_nodes(nodes, idx, summary, full)
 
 
 def cmd_flow_nodes(idx, args):
@@ -369,6 +375,7 @@ def cmd_flow_nodes(idx, args):
         die(f"flow not found: {flow_id}")
     flags = set(args[1:])
     summary = "--summary" in flags
+    full = "--full" in flags
     sources_only = "--sources" in flags
     follow_links = "--dont-follow-links" not in flags
 
@@ -378,7 +385,7 @@ def cmd_flow_nodes(idx, args):
         source_ids = set(get_scope_sources(all_ids, idx, follow_links))
         nodes = [n for n in nodes if n["id"] in source_ids]
     nodes = sorted(nodes, key=lambda n: (n.get("type", ""), n.get("name", "")))
-    output_nodes(nodes, idx, summary)
+    output_nodes(nodes, idx, summary, full)
 
 
 def cmd_group_nodes(idx, args):
@@ -390,6 +397,7 @@ def cmd_group_nodes(idx, args):
         die(f"group not found: {group_id}")
     flags = set(args[1:])
     summary = "--summary" in flags
+    full = "--full" in flags
     sources_only = "--sources" in flags
     follow_links = "--dont-follow-links" not in flags
 
@@ -399,7 +407,7 @@ def cmd_group_nodes(idx, args):
         member_ids = [i for i in member_ids if i in source_ids]
     nodes = [idx["by_id"][i] for i in member_ids if i in idx["by_id"]]
     nodes = sorted(nodes, key=lambda n: (n.get("type", ""), n.get("name", "")))
-    output_nodes(nodes, idx, summary)
+    output_nodes(nodes, idx, summary, full)
 
 
 def cmd_subflow_nodes(idx, args):
@@ -411,8 +419,9 @@ def cmd_subflow_nodes(idx, args):
         die(f"subflow definition not found: {sf_id}")
     flags = set(args[1:])
     summary = "--summary" in flags
+    full = "--full" in flags
     nodes = sorted(idx["by_z"].get(sf_id, []), key=lambda n: (n.get("type", ""), n.get("name", "")))
-    output_nodes(nodes, idx, summary)
+    output_nodes(nodes, idx, summary, full)
 
 
 def cmd_subflow_instances(idx, args):
@@ -424,8 +433,9 @@ def cmd_subflow_instances(idx, args):
         die(f"subflow definition not found: {sf_id}")
     flags = set(args[1:])
     summary = "--summary" in flags
+    full = "--full" in flags
     instances = idx["subflow_instances"].get(sf_id, [])
-    output_nodes(instances, idx, summary)
+    output_nodes(instances, idx, summary, full)
 
 
 def cmd_search(idx, args):
@@ -433,6 +443,7 @@ def cmd_search(idx, args):
     name_filter = None
     flow_filter = None
     summary = False
+    full = False
     i = 0
     while i < len(args):
         if args[i] == "--type" and i + 1 < len(args):
@@ -446,6 +457,9 @@ def cmd_search(idx, args):
             i += 2
         elif args[i] == "--summary":
             summary = True
+            i += 1
+        elif args[i] == "--full":
+            full = True
             i += 1
         else:
             die(f"unknown search argument: {args[i]}")
@@ -469,7 +483,7 @@ def cmd_search(idx, args):
         results.append(node)
 
     results.sort(key=lambda n: (n.get("z", ""), n.get("type", ""), n.get("name", "")))
-    output_nodes(results, idx, summary)
+    output_nodes(results, idx, summary, full)
 
 
 COMMANDS = {
@@ -502,6 +516,7 @@ Commands:
 
 Shared flags:
   --summary           Compact one-liner per node instead of JSONL
+  --full              Pretty-printed JSON array of all matching nodes
   --dont-follow-links Don't cross link in/out/call boundaries
                       (applies to: connected, head-nodes, tail-nodes,
                        flow-nodes --sources, group-nodes --sources)

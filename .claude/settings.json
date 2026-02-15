@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "mcp__home-assistant__get_version"
+      "mcp__home-assistant__get_version",
+      "mcp__home-assistant__search_entities_tool",
+      "mcp__home-assistant__list_entities",
+      "WebSearch",
+      "WebFetch(domain:nodered.org)",
+      "WebFetch(domain:developers.home-assistant.io)",
+      "Bash(bash helper-scripts/*:*)",
+      "Bash(md5:*)",
+      "Bash(grep:*)",
+      "Bash(git:*)"
     ]
   }
 }
