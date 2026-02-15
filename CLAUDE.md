@@ -20,12 +20,27 @@ When working on automation tasks (the inner project), agents should:
 2. Load `docs/exploring-nodered-json.md` for guidance on using the flow analysis tools.
 3. **Query the live Home Assistant server when curious.** The Home Assistant MCP is configured for this project. When exploring flows and trying to understand automations — especially during `/deep-dive` or `/analyze-flows` — if something isn't clear from the Node-RED JSON or HA script YAML alone, query HA directly: search for entities, check entity states and attributes, look at history, browse domains, etc. Don't make modifications while exploring, but curiosity is encouraged — understanding what an entity actually is, what values it holds, or how a domain is structured often reveals context that the static flow data can't.
 
+### After modifying flows
+
+After making changes to `mynodered/nodered.json`, always update the documentation:
+
+1. **Run the diff summary** and review the **AFFECTED DOCUMENTATION** section at the bottom:
+   ```
+   bash helper-scripts/summarize-nodered-flows-diff.sh --git mynodered/nodered.json
+   ```
+   This lists flow/subflow docs that need updating, plus any other docs (deep-dives, topic docs) that reference changed node IDs.
+
+2. **Update every listed doc** to reflect your changes. For flow/subflow docs (`docs/flows/*.md`, `docs/subflows/*.md`), update the relevant sections. For deep-dive docs (`docs/occupancy.md`, `docs/switches.md`, etc.), update the prose to match the new behavior.
+
+3. **Update `mynodered/CLAUDE.md`**: revise any flow/subflow summary paragraphs that are now inaccurate, and update the MD5 hash at the bottom (`md5 mynodered/nodered.json`).
+
 ## Project structure
 
 ### Outer project (this repo)
 
 - `init.sh` - First-time setup: configures `.env`, sets up the `mynodered/` submodule, and verifies the HA MCP connection.
 - `download-flows.sh` - User-facing script to download the latest Node-RED flows from Home Assistant into `mynodered/nodered.json` and commit them to the submodule. Users should run this at the start of a session before working on automations.
+- `upload-flows.sh` - User-facing script to upload `mynodered/nodered.json` to the Node-RED server and trigger a full deploy. Compares local flows against the server first, confirms with the user, then uploads. Always does a full replacement of all nodes.
 - `helper-scripts/` - Shell scripts called by Claude or by other scripts (not intended to be called directly by humans).
 - `docs/` - Documentation for the outer project's tools and subsystems.
 - `/.env` - Gitignored file containing settings for talking to Home Assistant.
@@ -35,6 +50,7 @@ When working on automation tasks (the inner project), agents should:
 - `helper-scripts/check-env.sh` - Sourced by other scripts to load `.env` and verify required env vars are set.
 - `helper-scripts/run-hass-mcp.sh` - Runs the Home Assistant MCP server (used by the project MCP config).
 - `helper-scripts/download-nodered-flows.sh [output.json]` - Downloads the full Node-RED flow export from HA to a JSON file (default: `mynodered/nodered.json`). Output is normalized for stable diffs. Requires `uv`.
+- `helper-scripts/upload-nodered-flows.sh [input.json]` - Uploads a flows JSON file (default: `mynodered/nodered.json`) to Node-RED and triggers a full deploy. Requires `uv`.
 - `helper-scripts/normalize-json.sh <file.json> [output.json]` - Normalizes a JSON file (sorts keys, sorts arrays of objects by `id`). In-place if no output path given.
 - `helper-scripts/check-nodered-flows-unchanged.sh <flows.json>` - Downloads live flows and diffs against the given file. Exits 0 if they match, 1 if diverged (prints diff to stderr). Use before uploading modified flows to catch concurrent edits.
 - `helper-scripts/summarize-nodered-flows.sh <flows.json>` - Prints a summary of flows and subflows from a flows JSON file.

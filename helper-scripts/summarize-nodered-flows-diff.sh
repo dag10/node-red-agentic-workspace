@@ -43,4 +43,13 @@ else
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 "$SCRIPT_DIR/summarize-nodered-flows-diff.py" "$BEFORE_FILE" "$AFTER_FILE"
+
+# Derive docs directory: sibling "docs/" next to the after-file.
+AFTER_DIR="$(cd "$(dirname "$AFTER_FILE")" && pwd)"
+DOCS_DIR="$AFTER_DIR/docs"
+DOCS_ARGS=()
+if [[ -d "$DOCS_DIR" ]]; then
+  DOCS_ARGS=(--docs-dir "$DOCS_DIR")
+fi
+
+exec python3 "$SCRIPT_DIR/summarize-nodered-flows-diff.py" "$BEFORE_FILE" "$AFTER_FILE" "${DOCS_ARGS[@]}"

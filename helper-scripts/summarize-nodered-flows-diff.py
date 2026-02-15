@@ -8,12 +8,14 @@ updating.
 Usage: Called by summarize-nodered-flows-diff.sh, not directly.
 """
 
+import argparse
 import importlib.util
 import json
 import os
 import re
 import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 
 # Import shared utilities from sibling scripts.
 _dir = os.path.dirname(os.path.abspath(__file__))
@@ -724,7 +726,78 @@ def print_wiring_changes(diff):
         print("  (no wiring changes)")
 
 
-def print_affected_docs(tabs, subflows, diff, after_by_z):
+def _collect_changed_node_ids(diff):
+    """Collect all node IDs that were involved in changes.
+
+    Includes directly changed nodes (added, removed, modified) plus any
+    node that gained or lost a connection (wires or links) to/from a
+    changed node -- even if that neighbor node wasn't itself modified.
+    This catches docs that reference stable nodes whose role changed due
+    to new/removed wiring.
+    """
+    changed = set(diff["added"]) | set(diff["removed"]) | set(diff["modified"])
+
+    # Also include IDs of groups that contain changed nodes.
+    for nid in list(changed):
+        node = diff["after_by_id"].get(nid) or diff["before_by_id"].get(nid)
+        if node and node.get("g"):
+            changed.add(node["g"])
+
+    # Collect IDs from wiring changes (nodes on either end of new/removed
+    # connections, even if the node itself wasn't structurally modified).
+    def _connection_ids(node_dict, node_ids):
+        conns = set()
+        for nid in node_ids:
+            node = node_dict.get(nid, {})
+            for targets in node.get("wires", []):
+                for tid in targets:
+                    conns.add((nid, tid))
+            ntype = node.get("type", "")
+            if ntype in ("link out", "link call"):
+                for tid in node.get("links", []):
+                    conns.add((nid, tid))
+        return conns
+
+    all_before_ids = set(diff["before_by_id"])
+    all_after_ids = set(diff["after_by_id"])
+    before_conns = _connection_ids(diff["before_by_id"], all_before_ids)
+    after_conns = _connection_ids(diff["after_by_id"], all_after_ids)
+
+    for src, dst in (after_conns - before_conns) | (before_conns - after_conns):
+        changed.add(src)
+        changed.add(dst)
+
+    return changed
+
+
+def _scan_docs_for_node_ids(docs_dir, node_ids):
+    """Grep all .md files under docs_dir for any of the given node IDs.
+
+    Returns a dict mapping relative file paths to the set of matched IDs.
+    """
+    if not docs_dir or not os.path.isdir(docs_dir):
+        return {}
+
+    docs_path = Path(docs_dir)
+    # Build a single regex alternation for efficient scanning.
+    if not node_ids:
+        return {}
+    pattern = re.compile("|".join(re.escape(nid) for nid in node_ids))
+
+    hits = {}
+    for md_file in sorted(docs_path.rglob("*.md")):
+        try:
+            text = md_file.read_text(errors="replace")
+        except OSError:
+            continue
+        found = set(pattern.findall(text))
+        if found:
+            rel = str(md_file.relative_to(docs_path))
+            hits[rel] = found
+    return hits
+
+
+def print_affected_docs(tabs, subflows, diff, after_by_z, docs_dir=None):
     """Summarize which documentation files likely need updating."""
     print_heading("AFFECTED DOCUMENTATION")
 
@@ -791,6 +864,7 @@ def print_affected_docs(tabs, subflows, diff, after_by_z):
         subflow_docs.append((sid, name, "subflow removed"))
         needs_overview = True
 
+    # --- Structural analysis (flow/subflow docs) ---
     if needs_overview:
         print("  CLAUDE.md — flow/subflow list or names changed")
 
@@ -800,7 +874,37 @@ def print_affected_docs(tabs, subflows, diff, after_by_z):
     for sid, name, reason in subflow_docs:
         print(f"  docs/subflows/{sid}.md — {name} ({reason})")
 
-    if not needs_overview and not flow_docs and not subflow_docs:
+    # --- Node-ID grep across all docs ---
+    # Already-listed paths (by their relative-to-docs-dir form).
+    already_listed = set()
+    if needs_overview:
+        already_listed.add("../CLAUDE.md")  # sentinel; handled separately below
+    for fid, _, _ in flow_docs:
+        already_listed.add(f"flows/{fid}.md")
+    for sid, _, _ in subflow_docs:
+        already_listed.add(f"subflows/{sid}.md")
+
+    changed_ids = _collect_changed_node_ids(diff)
+    doc_hits = _scan_docs_for_node_ids(docs_dir, changed_ids)
+
+    extra_docs = []
+    for rel_path, matched_ids in sorted(doc_hits.items()):
+        if rel_path in already_listed:
+            continue
+        # Skip plan files -- they're historical records, not living docs.
+        if "/plans/" in rel_path or rel_path.startswith("plans/"):
+            continue
+        extra_docs.append((rel_path, matched_ids))
+
+    if extra_docs:
+        print()
+        print("  Additional docs referencing changed nodes:")
+        for rel_path, matched_ids in extra_docs:
+            count = len(matched_ids)
+            s = "s" if count != 1 else ""
+            print(f"    docs/{rel_path} ({count} node ID{s})")
+
+    if not needs_overview and not flow_docs and not subflow_docs and not extra_docs:
         print("  (no documentation updates needed)")
 
 
@@ -809,15 +913,20 @@ def print_affected_docs(tabs, subflows, diff, after_by_z):
 # ---------------------------------------------------------------------------
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: summarize-nodered-flows-diff.py <before.json> <after.json>",
-              file=sys.stderr)
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Diff-aware Node-RED flows summary",
+    )
+    parser.add_argument("before", help="Before JSON file")
+    parser.add_argument("after", help="After JSON file")
+    parser.add_argument("--docs-dir", default=None,
+                        help="Path to docs directory to scan for affected docs")
+    args = parser.parse_args()
 
-    with open(sys.argv[1]) as f:
+    with open(args.before) as f:
         before_data = json.load(f)
-    with open(sys.argv[2]) as f:
+    with open(args.after) as f:
         after_data = json.load(f)
+    docs_dir = args.docs_dir
 
     diff = compute_diff(before_data, after_data)
     after_idx = build_index(after_data)
@@ -860,7 +969,7 @@ def main():
     print_entity_changes(before_data, after_data, diff)
     print_function_changes(diff)
     print_wiring_changes(diff)
-    print_affected_docs(tabs, subflows, diff, after_by_z)
+    print_affected_docs(tabs, subflows, diff, after_by_z, docs_dir=docs_dir)
 
 
 if __name__ == "__main__":
