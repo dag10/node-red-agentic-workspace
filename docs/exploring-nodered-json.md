@@ -1,7 +1,7 @@
 # Exploring Node-RED Flows JSON
 
 This guide teaches you to navigate and understand large Node-RED flows exports
-using the `summarize-nodered-flows.sh` and `query-nodered-flows.sh` scripts.
+using the `helper-scripts/summarize-nodered-flows.sh` and `helper-scripts/query-nodered-flows.sh` scripts.
 The flows file (`mynodered/nodered.json`) is a flat JSON array of 1000+ nodes
 that's impractical to read directly. These tools let you drill into exactly
 the parts you need.
@@ -68,7 +68,7 @@ so it catches them regardless of which field they're in.
 ## Tool 1: summarize-nodered-flows.sh
 
 ```
-scripts/summarize-nodered-flows.sh mynodered/nodered.json
+helper-scripts/summarize-nodered-flows.sh mynodered/nodered.json
 ```
 
 This is your **starting point**. Run it first whenever you need to work with
@@ -117,7 +117,7 @@ command.
 ## Tool 2: query-nodered-flows.sh
 
 ```
-scripts/query-nodered-flows.sh mynodered/nodered.json <command> [args...]
+helper-scripts/query-nodered-flows.sh mynodered/nodered.json <command> [args...]
 ```
 
 This is your **drill-down tool**. Once the summary tells you which flow, group,
