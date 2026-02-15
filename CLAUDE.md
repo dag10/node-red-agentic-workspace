@@ -37,7 +37,7 @@ Two useful ways to do this, once you git blame the code to see what commit(s) it
 
 - `scripts/check-env.sh` - Sourced by other scripts to load `.env` and verify required env vars are set.
 - `scripts/run-hass-mcp.sh` - Runs the Home Assistant MCP server (used by the project MCP config).
-- `scripts/download-nodered-flows.sh [output.json]` - Downloads the full Node-RED flow export from HA to a JSON file (default: `nodered.json`). Output is normalized for stable diffs. Requires `uv`.
+- `scripts/download-nodered-flows.sh [output.json]` - Downloads the full Node-RED flow export from HA to a JSON file (default: `mynodered/nodered.json`). Output is normalized for stable diffs. Requires `uv`.
 - `scripts/normalize-json.sh <file.json> [output.json]` - Normalizes a JSON file (sorts keys, sorts arrays of objects by `id`). In-place if no output path given.
 - `scripts/check-nodered-flows-unchanged.sh <flows.json>` - Downloads live flows and diffs against the given file. Exits 0 if they match, 1 if diverged (prints diff to stderr). Use before uploading modified flows to catch concurrent edits.
 - `scripts/summarize-nodered-flows.sh <flows.json>` - Prints a summary of flows and subflows from a flows JSON file.
