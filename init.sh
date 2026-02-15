@@ -150,20 +150,33 @@ else
   exit 1
 fi
 
-echo ""
-echo "Verifying Home Assistant MCP connection..."
-echo ""
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo ""
+  echo "Verifying Home Assistant MCP connection..."
+  echo ""
 
-# NOTE: --model flag uses the short alias; claude cli resolves it to the full model id.
-output=$(claude --model haiku --print \
-  "Verify the home-assistant MCP server is loaded and call the get_version tool. Reply with ONLY the version string if it works, or 'FAIL: <reason>' if not." \
-  2>&1)
+  # NOTE: --model flag uses the short alias; claude cli resolves it to the full model id.
+  output=$(claude --model haiku --print \
+    "Verify the home-assistant MCP server is loaded and call the get_version tool. Reply with ONLY the version string if it works, or 'FAIL: <reason>' if not." \
+    2>&1)
 
-if [[ "$output" == FAIL* ]]; then
-  echo "Verification failed: $output" >&2
-  exit 1
+  if [[ "$output" == FAIL* ]]; then
+    echo "Verification failed: $output" >&2
+    exit 1
+  fi
+
+  echo "Home Assistant MCP connected — HA version $output"
 fi
 
-echo "Home Assistant MCP connected — HA version $output"
 echo ""
 echo "You're all good to go!"
+
+if [[ ! -f "$MYNODERED_DIR/nodered.json" ]]; then
+  echo ""
+  read -rp "Would you like to download your Node-RED flows now? [Y/n] " download
+  download="${download:-Y}"
+  if [[ "$download" =~ ^[Yy]$ ]]; then
+    echo ""
+    "$PROJECT_DIR/download-flows.sh"
+  fi
+fi
