@@ -17,7 +17,8 @@ HA integration is available through the project MCP.
 When working on automation tasks (the inner project), agents should:
 
 1. Read both `CLAUDE.md` (this file) and `mynodered/CLAUDE.md` (if it exists). The inner CLAUDE.md may contain context about the user's personal home setup, naming conventions, or automation preferences. It'll also have a list of all docs in docs/flows and docs/subflows.
-3. Load `docs/exploring-nodered-json.md` for guidance on using the flow analysis tools.
+2. Load `docs/exploring-nodered-json.md` for guidance on using the flow analysis tools.
+3. **Query the live Home Assistant server when curious.** The Home Assistant MCP is configured for this project. When exploring flows and trying to understand automations — especially during `/deep-dive` or `/analyze-flows` — if something isn't clear from the Node-RED JSON or HA script YAML alone, query HA directly: search for entities, check entity states and attributes, look at history, browse domains, etc. Don't make modifications while exploring, but curiosity is encouraged — understanding what an entity actually is, what values it holds, or how a domain is structured often reveals context that the static flow data can't.
 
 ## Project structure
 

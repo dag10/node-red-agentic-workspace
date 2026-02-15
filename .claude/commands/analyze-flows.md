@@ -220,7 +220,52 @@ Before finishing, verify:
 - [ ] Descriptions of function node logic match the actual JavaScript code.
 - [ ] No docs reference nodes, groups, or flows that were removed.
 
-## 5. Mark analysis complete
+## 5. Suggest deep-dive documentation
+
+After the quality checklist passes, check whether deep-dive suggestions are
+warranted. There are two triggers:
+
+### First analysis (all flows are new)
+
+If the CHANGE OVERVIEW from step 2 said "First import" (i.e., every flow was
+tagged [NEW] and no prior docs existed), the user has never had deep-dive docs
+generated.
+
+Invoke the `/deep-dive` skill with no arguments (use the Skill tool). This will
+suggest high-value deep-dive candidates, present them to the user via
+`AskUserQuestion`, and spawn subagents for any the user selects. You don't need
+to handle the suggestion/selection/execution logic yourself — the `/deep-dive`
+no-args mode handles the full flow.
+
+### Significant new system detected
+
+If this was not a first analysis, but during your work you noticed a significant
+new subsystem emerging from the changes — for example:
+- A brand-new flow that introduces a cross-cutting concern (e.g., a new
+  "Energy Management" flow that touches multiple existing flows)
+- A cluster of new groups/subflows that together form a coherent system not
+  covered by any existing deep-dive doc in `mynodered/CLAUDE.md`
+- A new pattern that spans multiple flows in a way that individual flow docs
+  can't fully capture
+
+Then ask the user with `AskUserQuestion` whether they'd like to kick off a
+`/deep-dive` for that system. Provide:
+- A suggested name and scope for the deep-dive
+- A brief explanation of why it seems valuable
+- Options: "Yes, run it now" / "Not right now"
+
+If they say yes, spawn an opus subagent to run the full `/deep-dive <name>
+<scope>` command as described above.
+
+### Skip conditions
+
+Don't suggest deep-dives if:
+- The analysis only involved minor changes to existing flows (no new flows or
+  subflows, just field tweaks).
+- The changes are all within a single flow and don't introduce cross-cutting
+  concerns.
+
+## 6. Mark analysis complete
 
 After passing the quality checklist, mark this analysis as complete by snapshotting
 the flows file you analyzed and staging it:
