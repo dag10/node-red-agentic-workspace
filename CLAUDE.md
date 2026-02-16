@@ -46,7 +46,17 @@ After making changes to `mynodered/nodered.json`, always update the documentatio
 
 2. **Update every listed doc** to reflect your changes. For flow/subflow docs (`docs/flows/*.md`, `docs/subflows/*.md`), update the relevant sections. For deep-dive docs (`docs/occupancy.md`, `docs/switches.md`, etc.), update the prose to match the new behavior.
 
-3. **Update `mynodered/CLAUDE.md`**: revise any flow/subflow summary paragraphs that are now inaccurate, and update the MD5 hash at the bottom (`md5 mynodered/nodered.json`).
+3. **Update `mynodered/CLAUDE.md`**: revise any flow/subflow summary paragraphs that are now inaccurate. Do NOT change the MD5 hash — it tracks `nodered-last-downloaded.json` (the last deployed state) and is only updated by the download/analyze workflow, not by local modifications.
+
+### Commit structure for flow modifications
+
+When modifying flows, the changes in `mynodered/` should be committed as a **single commit** containing:
+- The `nodered.json` changes
+- All doc updates (`docs/flows/*.md`, `docs/subflows/*.md`, deep-dive docs)
+- Updated summary paragraphs in `mynodered/CLAUDE.md`
+- Plan files (if applicable, these go in the outer repo's commit)
+
+Do NOT mix download/analyze changes with modification changes. If you need to download fresh flows first, that should be a separate prior commit (handled by `download-flows.sh` or `/analyze-flows`). Your modification commit should only contain your changes and the doc updates that describe them.
 
 ## Project structure
 
