@@ -70,5 +70,9 @@ echo ""
 # Now that our local flows are what's deployed, update the last-downloaded snapshot.
 cp "$FLOWS_FILE" "$LAST_DOWNLOADED"
 
+# Commit the updated snapshot to the submodule.
+git -C "$MYNODERED_DIR" add nodered-last-downloaded.json
+git -C "$MYNODERED_DIR" commit -m "Deployed flows."
+
 echo ""
 echo "Deploy complete."
