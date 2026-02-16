@@ -18,6 +18,8 @@ When working on automation tasks (the inner project), agents should:
 
 1. Read both `CLAUDE.md` (this file) and `mynodered/CLAUDE.md` (if it exists). The inner CLAUDE.md may contain context about the user's personal home setup, naming conventions, or automation preferences. It'll also have a list of all docs in docs/flows and docs/subflows.
 2. Load `docs/exploring-nodered-json.md` for guidance on using the flow analysis tools.
+   If you'll be modifying flows, also load `docs/modifying-nodered-json.md` for the
+   write tool reference.
 3. **Query the live Home Assistant server when curious.** The Home Assistant MCP is configured for this project. When exploring flows and trying to understand automations — especially during `/deep-dive` or `/analyze-flows` — if something isn't clear from the Node-RED JSON or HA script YAML alone, query HA directly: search for entities, check entity states and attributes, look at history, browse domains, etc. Don't make modifications while exploring, but curiosity is encouraged — understanding what an entity actually is, what values it holds, or how a domain is structured often reveals context that the static flow data can't.
 
 ### After modifying flows
@@ -56,6 +58,7 @@ After making changes to `mynodered/nodered.json`, always update the documentatio
 - `helper-scripts/summarize-nodered-flows.sh <flows.json>` - Prints a summary of flows and subflows from a flows JSON file.
 - `helper-scripts/summarize-nodered-flows-diff.sh <before.json> <after.json>` or `--git <flows.json>` - Diff-aware summary comparing two flow versions. Includes everything from the regular summary (with [NEW]/[MODIFIED] tags), plus detailed per-flow/subflow change breakdowns, entity reference changes, function code changes, wiring changes, and a list of which documentation files need updating. With `--git`, compares the file on disk against its last committed version.
 - `helper-scripts/query-nodered-flows.sh <flows.json> <command> [args...]` - Extracts specific subsets of a flows JSON: individual nodes, connected subgraphs, flow/group contents, subflow instances, function source code, and flexible search. Commands: `node`, `function`, `connected`, `head-nodes`, `tail-nodes`, `flow-nodes`, `group-nodes`, `subflow-nodes`, `subflow-instances`, `search`. Use `--summary` for compact one-liners. Use `--full` for a pretty-printed JSON array of all matching nodes. Use `--sources` with `flow-nodes`/`group-nodes` to get only entry-point nodes.
+- `helper-scripts/modify-nodered-flows.sh <flows.json> <command> [args...]` - Modifies a flows JSON file: add/update/delete nodes, wire/unwire connections, link/unlink link nodes, manage groups, set function code, and batch multiple operations atomically. Commands: `add-node`, `update-node`, `delete-node`, `wire`, `unwire`, `link`, `unlink`, `add-group`, `move-to-group`, `remove-from-group`, `set-function`, `batch`. Output is auto-normalized (sorted keys, sorted by id). Use `--dry-run` on any command to preview changes.
 - `helper-scripts/relayout-nodered-flows.sh <flows.json> [--dry-run] [--verbose]` - Auto-relayout Node-RED groups containing modified nodes using dagre LR layout. Compares the file on disk against its last committed version, identifies groups with structural changes (added/removed/rewired nodes — not position-only), and runs dagre to reposition nodes within those groups. Groups below resized groups are shifted vertically to avoid overlap. Automatically called by `upload-flows.sh` before upload. Requires Node.js; installs `@dagrejs/dagre` into `helper-scripts/.dagre-deps/` on first run.
 - `helper-scripts/get-ha-script.sh <script_name>` - Dumps the YAML definition of a Home Assistant script (the classic HA YAML scripts, not Node-RED flows). Accepts either `script.foo` or just `foo`. Use this when a Node-RED flow calls out to an HA script (via `script.turn_on` or similar) and you need to understand what that script does. Read-only — this project does not modify HA scripts.
 
@@ -109,6 +112,10 @@ a task involving that system.
   `query-nodered-flows.sh` to navigate Node-RED flows. **Load when:** working with
   `mynodered/nodered.json`, planning or implementing flow changes, or investigating
   automations.
+- `docs/modifying-nodered-json.md` — How to use `modify-nodered-flows.sh` to make
+  changes to Node-RED flows. Covers all commands, batch operations, and end-to-end
+  modification workflows. **Load when:** making changes to `mynodered/nodered.json`,
+  adding new automations, or modifying existing ones.
 
 The inner `mynodered/docs/` directory contains detailed info about the user's node-red automations. There's deep-dive docs at the top level for certain topics, and docs for all flows and subflows known.
 
