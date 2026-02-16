@@ -78,11 +78,10 @@ in the format of `YYYY-MM-DD-sensible-plan-name.md`. Use the current system date
 Commit them in the same commit where the plan is implemented.
 
 Each plan should have a companion prompt file: `YYYY-MM-DD-sensible-plan-name.prompt.md`.
-This file captures the user prompt (or the relevant portion) that led to the plan, preserving
-the original request for future context. The prompt file should contain the raw user prompt text
+This file captures the user verbatim prompt (or the relevant verbatim portion[s]) that led to the plan, preserving the original request for future context. The prompt file should contain the raw user prompt text
 with minimal formatting -- just enough to be readable. If multiple tasks come from a single user
 prompt, each task's `.prompt.md` should contain the relevant portion of the original prompt
-(including the full prompt is also acceptable when excerpting would lose useful context).
+(including the full prompt is also acceptable when excerpting would lose useful context). The .prompt.md file will have to be written by the top-level agent since subagents don't know the prompts. The top-level agent writes this after the plan md file is written so it knows where to write the prompt.
 
 When investigating code for building a plan, you might sometimes encounter lines of code or whole systems
 who seem surprising or non-trivial. It's often to useful to understand the context and intent of why they
