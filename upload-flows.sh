@@ -19,6 +19,9 @@ if [[ ! -f "$FLOWS_FILE" ]]; then
   exit 1
 fi
 
+# --- Relayout groups with modified nodes (non-fatal) ---
+"$PROJECT_DIR/helper-scripts/relayout-nodered-flows.sh" "$FLOWS_FILE" || true
+
 # --- Check for changes to upload ---
 echo "Checking for differences between local flows and server..."
 echo ""
