@@ -1,0 +1,3 @@
+Read @docs/exploring-nodered-json.md and @helper-scripts/query-nodered-flows.py and @helper-scripts/query-nodered-flows.sh to understand the Tools claudes have available to them to efficiently understand node-red automations and the relationships within all the graphs, without having to ingest the entire nodered.json file, which is large.
+Knowing that, and knowing best practices for agentic tools for both code planning and code writing, come up with a plan of various tools that would be useful for agents to WRITE changes (modifications, additions, refactors, etc etc) to the nodered.json file, without having to write to the file directly.
+(just one agent for this task, save the doc within the plans dir and still commit)
