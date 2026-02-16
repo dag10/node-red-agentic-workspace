@@ -271,8 +271,8 @@ After passing the quality checklist, mark this analysis as complete by snapshott
 the flows file you analyzed and staging it:
 
 ```bash
-cp mynodered/nodered.json mynodered/nodered-analyzed.json
-git -C mynodered add nodered-analyzed.json
+cp mynodered/nodered.json mynodered/nodered-last-analyzed.json
+git -C mynodered add nodered-last-analyzed.json
 ```
 
 This checkpoint tells the calling script that you successfully analyzed this exact
