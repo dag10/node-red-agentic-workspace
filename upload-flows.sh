@@ -20,10 +20,17 @@ if [[ ! -f "$FLOWS_FILE" ]]; then
 fi
 
 # --- Relayout groups with modified nodes (non-fatal) ---
-"$PROJECT_DIR/helper-scripts/relayout-nodered-flows.sh" "$FLOWS_FILE" || true
+# NOTE: We compare against nodered-last-downloaded.json (the last deployed state)
+# rather than the git HEAD, because agents commit flow changes before upload.
+# Comparing against HEAD would miss changes that are already committed.
+LAST_DOWNLOADED="$MYNODERED_DIR/nodered-last-downloaded.json"
+if [[ -f "$LAST_DOWNLOADED" ]]; then
+  "$PROJECT_DIR/helper-scripts/relayout-nodered-flows.sh" "$FLOWS_FILE" --baseline "$LAST_DOWNLOADED" || true
+else
+  "$PROJECT_DIR/helper-scripts/relayout-nodered-flows.sh" "$FLOWS_FILE" || true
+fi
 
 # --- Check that the server hasn't changed since we last downloaded ---
-LAST_DOWNLOADED="$MYNODERED_DIR/nodered-last-downloaded.json"
 server_diverged=false
 if [[ -f "$LAST_DOWNLOADED" ]]; then
   echo "Checking that the server hasn't changed since last download..."

@@ -36,7 +36,18 @@ This check only needs to happen **once per user prompt** — if the top-level ag
 
 ### After modifying flows
 
-After making changes to `mynodered/nodered.json`, always update the documentation:
+After making changes to `mynodered/nodered.json`:
+
+0. **Run the relayout tool** to fix node positions before committing:
+   ```
+   bash helper-scripts/relayout-nodered-flows.sh mynodered/nodered.json
+   ```
+   This must run before committing, while uncommitted changes exist. It compares
+   against the last git commit to detect structural changes (added/removed/rewired
+   nodes), then repositions nodes within affected groups using dagre layout. If you
+   commit first, the relayout has no diff to detect and becomes a no-op.
+
+Then update the documentation:
 
 1. **Run the diff summary** and review the **AFFECTED DOCUMENTATION** section at the bottom:
    ```
@@ -81,7 +92,7 @@ Do NOT mix download/analyze changes with modification changes. If you need to do
 - `helper-scripts/summarize-nodered-flows-diff.sh <before.json> <after.json>` or `--git <flows.json>` - Diff-aware summary comparing two flow versions. Includes everything from the regular summary (with [NEW]/[MODIFIED] tags), plus detailed per-flow/subflow change breakdowns, entity reference changes, function code changes, wiring changes, and a list of which documentation files need updating. With `--git`, compares the file on disk against its last committed version.
 - `helper-scripts/query-nodered-flows.sh <flows.json> <command> [args...]` - Extracts specific subsets of a flows JSON: individual nodes, connected subgraphs, flow/group contents, subflow instances, function source code, and flexible search. Commands: `node`, `function`, `connected`, `head-nodes`, `tail-nodes`, `flow-nodes`, `group-nodes`, `subflow-nodes`, `subflow-instances`, `search`. Use `--summary` for compact one-liners. Use `--full` for a pretty-printed JSON array of all matching nodes. Use `--sources` with `flow-nodes`/`group-nodes` to get only entry-point nodes.
 - `helper-scripts/modify-nodered-flows.sh <flows.json> <command> [args...]` - Modifies a flows JSON file: add/update/delete nodes, wire/unwire connections, link/unlink link nodes, manage groups, set function code, and batch multiple operations atomically. Commands: `add-node`, `update-node`, `delete-node`, `wire`, `unwire`, `link`, `unlink`, `add-group`, `move-to-group`, `remove-from-group`, `set-function`, `batch`. Output is auto-normalized (sorted keys, sorted by id). Use `--dry-run` on any command to preview changes.
-- `helper-scripts/relayout-nodered-flows.sh <flows.json> [--dry-run] [--verbose]` - Auto-relayout Node-RED groups containing modified nodes using dagre LR layout. Compares the file on disk against its last committed version, identifies groups with structural changes (added/removed/rewired nodes — not position-only), and runs dagre to reposition nodes within those groups. Groups below resized groups are shifted vertically to avoid overlap. Automatically called by `upload-flows.sh` before upload. Requires Node.js; installs `@dagrejs/dagre` into `helper-scripts/.dagre-deps/` on first run.
+- `helper-scripts/relayout-nodered-flows.sh <flows.json> [--baseline <file>] [--dry-run] [--verbose]` - Auto-relayout Node-RED groups containing modified nodes using dagre LR layout. By default, compares the file on disk against its last committed version; use `--baseline <file>` to compare against a specific file instead (used by `upload-flows.sh` to compare against `nodered-last-downloaded.json`). Identifies groups with structural changes (added/removed/rewired nodes -- not position-only) and runs dagre to reposition nodes within those groups. Groups below resized groups are shifted vertically to avoid overlap. Automatically called by `upload-flows.sh` before upload. Requires Node.js; installs `@dagrejs/dagre` into `helper-scripts/.dagre-deps/` on first run.
 - `helper-scripts/get-ha-script.sh <script_name>` - Dumps the YAML definition of a Home Assistant script (the classic HA YAML scripts, not Node-RED flows). Accepts either `script.foo` or just `foo`. Use this when a Node-RED flow calls out to an HA script (via `script.turn_on` or similar) and you need to understand what that script does. Read-only — this project does not modify HA scripts.
 
 ### Inner project (mynodered/ submodule)
