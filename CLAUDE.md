@@ -22,6 +22,18 @@ When working on automation tasks (the inner project), agents should:
    write tool reference.
 3. **Query the live Home Assistant server when curious.** The Home Assistant MCP is configured for this project. When exploring flows and trying to understand automations — especially during `/deep-dive` or `/analyze-flows` — if something isn't clear from the Node-RED JSON or HA script YAML alone, query HA directly: search for entities, check entity states and attributes, look at history, browse domains, etc. Don't make modifications while exploring, but curiosity is encouraged — understanding what an entity actually is, what values it holds, or how a domain is structured often reveals context that the static flow data can't.
 
+### Before modifying flows
+
+Before making any changes to `mynodered/nodered.json`, verify that the local copy matches what's deployed on the server:
+
+```
+bash helper-scripts/check-nodered-flows-unchanged.sh mynodered/nodered-last-downloaded.json
+```
+
+If this check fails (exit code 1), **stop and tell the user** to run `bash download-flows.sh` to re-sync before proceeding. Do not modify `nodered.json` when the local copy is out of sync with production.
+
+This check only needs to happen **once per user prompt** — if the top-level agent or the first subagent has already verified it, subsequent subagents in the same prompt don't need to re-check.
+
 ### After modifying flows
 
 After making changes to `mynodered/nodered.json`, always update the documentation:

@@ -8,6 +8,12 @@ the JSON structure is essential before making changes.
 
 ## Before You Start
 
+- **Verify the local copy is in sync with production** before making any changes:
+  ```
+  bash helper-scripts/check-nodered-flows-unchanged.sh mynodered/nodered-last-downloaded.json
+  ```
+  If this fails, stop and tell the user to run `bash download-flows.sh` first.
+  This check only needs to happen once per user prompt, not per subagent.
 - **Read `docs/exploring-nodered-json.md` first** if you haven't. Understand
   the read tools before using write tools.
 - **Always query existing similar nodes as templates** before creating new ones.
