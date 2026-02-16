@@ -54,7 +54,7 @@ When modifying flows, the changes in `mynodered/` should be committed as a **sin
 - The `nodered.json` changes
 - All doc updates (`docs/flows/*.md`, `docs/subflows/*.md`, deep-dive docs)
 - Updated summary paragraphs in `mynodered/CLAUDE.md`
-- Plan files (if applicable, these go in the outer repo's commit)
+- Plan files (if applicable, in `mynodered/docs/plans/`)
 
 Do NOT mix download/analyze changes with modification changes. If you need to download fresh flows first, that should be a separate prior commit (handled by `download-flows.sh` or `/analyze-flows`). Your modification commit should only contain your changes and the doc updates that describe them.
 
@@ -98,9 +98,15 @@ The `mynodered/` directory is a git submodule containing the user's personal Nod
 
 ## Plans
 
-When you create plan markdown files, save them as a sensibly-named plan in the /docs/plans directory,
-in the format of `YYYY-MM-DD-sensible-plan-name.md`. Use the current system date.
-Commit them in the same commit where the plan is implemented.
+Plan files go in different locations depending on what they're about:
+
+- **Outer project plans** (scripts, tooling, infrastructure) go in `docs/plans/`.
+- **Automation plans** (Node-RED flow/subflow changes) go in `mynodered/docs/plans/`.
+
+Use the format `YYYY-MM-DD-sensible-plan-name.md` with the current system date.
+Commit plan files in the same commit where the plan is implemented. For automation
+plans, this means they're part of the `mynodered/` submodule commit alongside the
+flow changes and doc updates.
 
 Each plan should have a companion prompt file: `YYYY-MM-DD-sensible-plan-name.prompt.md`.
 This file captures the user verbatim prompt (or the relevant verbatim portion[s]) that led to the plan, preserving the original request for future context. The prompt file should contain the raw user prompt text
