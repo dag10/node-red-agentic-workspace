@@ -1,7 +1,7 @@
-# Analyze Node-RED Flow Changes
+# Analyze Downloaded Node-RED Flow Changes
 
 You are updating the automation documentation in `mynodered/docs/` to reflect the
-current state of `mynodered/nodered.json`.
+current state of `mynodered/nodered-last-downloaded.json`.
 
 **Process note:** Fire off each subagent sequentially, not in parallel.
 
@@ -17,7 +17,7 @@ Read these files before doing anything else:
 ## 2. Run the diff summary
 
 ```bash
-helper-scripts/summarize-nodered-flows-diff.sh --git mynodered/nodered.json
+helper-scripts/summarize-nodered-flows-diff.sh mynodered/nodered-last-analyzed.json mynodered/nodered-last-downloaded.json
 ```
 
 ### How to consume the output
@@ -52,7 +52,7 @@ subflow using the query tool, then write or update the doc.
 
 When you finish updating any particular md file, make sure it has a line somewhere indicating the nodered.json md5 it was generated with at the time:
 ```
-MD5 (nodered.json) = 4aea86e6acef86453726d70b983444c3
+MD5 (nodered-last-downloaded.json) = 4aea86e6acef86453726d70b983444c3
 ```
 
 And accordingly, whenever you're about to start tackling analyizing the nodered.json to generate a paritcular affected documenation file, first check to see if it has a nodered.json MD5 hash in it. It might not, and that's fine. But if it does, and it matches the current MD5 of the json file you're analyzing on-disk, skip updating that md file! This means there was previously a partial attempt on analyzing changes to the nodered.json file and it got interrupted (an error, or the Claude usage limit arrived). We don't need to regenerate it.

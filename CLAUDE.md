@@ -39,7 +39,7 @@ After making changes to `mynodered/nodered.json`, always update the documentatio
 ### Outer project (this repo)
 
 - `init.sh` - First-time setup: configures `.env`, sets up the `mynodered/` submodule, and verifies the HA MCP connection.
-- `download-flows.sh` - User-facing script to download the latest Node-RED flows from Home Assistant into `mynodered/nodered.json` and commit them to the submodule. Users should run this at the start of a session before working on automations.
+- `download-flows.sh` - User-facing script to download the latest Node-RED flows from Home Assistant into `mynodered/nodered-last-downloaded.json` and commit them to the submodule. Users should run this at the start of a session before working on automations.
 - `upload-flows.sh` - User-facing script to upload `mynodered/nodered.json` to the Node-RED server and trigger a full deploy. Compares local flows against the server first, confirms with the user, then uploads. Always does a full replacement of all nodes.
 - `helper-scripts/` - Shell scripts called by Claude or by other scripts (not intended to be called directly by humans).
 - `docs/` - Documentation for the outer project's tools and subsystems.
@@ -49,7 +49,7 @@ After making changes to `mynodered/nodered.json`, always update the documentatio
 
 - `helper-scripts/check-env.sh` - Sourced by other scripts to load `.env` and verify required env vars are set.
 - `helper-scripts/run-hass-mcp.sh` - Runs the Home Assistant MCP server (used by the project MCP config).
-- `helper-scripts/download-nodered-flows.sh [output.json]` - Downloads the full Node-RED flow export from HA to a JSON file (default: `mynodered/nodered.json`). Output is normalized for stable diffs. Requires `uv`.
+- `helper-scripts/download-nodered-flows.sh [output.json]` - Downloads the full Node-RED flow export from HA to a JSON file (default: `mynodered/nodered-last-downloaded.json`). Output is normalized for stable diffs. Requires `uv`.
 - `helper-scripts/upload-nodered-flows.sh [input.json]` - Uploads a flows JSON file (default: `mynodered/nodered.json`) to Node-RED and triggers a full deploy. Requires `uv`.
 - `helper-scripts/normalize-json.sh <file.json> [output.json]` - Normalizes a JSON file (sorts keys, sorts arrays of objects by `id`). In-place if no output path given.
 - `helper-scripts/check-nodered-flows-unchanged.sh <flows.json>` - Downloads live flows and diffs against the given file. Exits 0 if they match, 1 if diverged (prints diff to stderr). Use before uploading modified flows to catch concurrent edits.
@@ -63,7 +63,9 @@ After making changes to `mynodered/nodered.json`, always update the documentatio
 
 The `mynodered/` directory is a git submodule containing the user's personal Node-RED data.
 
-- `mynodered/nodered.json` - The full Node-RED flows export (downloaded via `download-flows.sh`).
+- `mynodered/nodered-last-downloaded.json` - The full Node-RED flows export as last downloaded from the Home Assistant server (downloaded via `download-flows.sh`). This file should never be modified locally in any way besides downloading the flows from the server, so it always represents the last known deployed state, useful for diffing.
+- `mynodered/nodered-last-analyzed.json` - The full Node-RED flows export as last last successfully analyzed from the /analyze-flows claude command. This copy is maintained because the user might only run /analyze-flows every so often compared to how often they download updated flows that were modified on Home Assistant itself. So `nodered-last-downloaded.json` is expected to potentially update more frequently than `nodered-last-analyzed.json`, so this file is used for the analyze skill to successfully diff.
+- `mynodered/nodered.json` - The full Node-RED flows export that is ultimately synchronized from production, and is our working file to make local changes on before committing and eventually deploying them.
 - `mynodered/CLAUDE.md` - User-specific context about their home, automations, naming conventions, or preferences. Agents working on automations should always check for and read this file. Also includes a high-level summary of all automations, based on the summary script output. Lists all flows and subflows with summary paragraphs and links to their detailed docs.
 - `mynodered/docs/` - Documentation describing the user's automations:
   - `docs/flows/<flow_id>.md` - Detailed overview of each flow: all groups, source nodes within each group (and ungrouped source nodes), and a summary of downstream nodes and their effects from each source.
