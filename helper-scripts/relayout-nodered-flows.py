@@ -437,7 +437,7 @@ def main():
 
         if args.verbose:
             delta = new_bottom - old_bottom
-            print(f"  {name}: height delta={delta:+d}px", file=sys.stderr)
+            print(f"  {name}: height delta={int(delta):+d}px", file=sys.stderr)
 
     if args.dry_run:
         return
