@@ -22,8 +22,6 @@ the JSON structure is essential before making changes.
   fields into `--props`.
 - **The modify tool handles normalization automatically.** Output is sorted by
   keys and by ID, matching `normalize-json.sh` exactly.
-- **Positions don't matter.** The relayout tool (`relayout-nodered-flows.sh`)
-  handles node positioning before upload. New nodes get default positions.
 - **HA server config is auto-populated.** When adding HA node types
   (`api-call-service`, `server-state-changed`, `trigger-state`, etc.), the
   `server` field is auto-set if there's exactly one server config node.
@@ -574,16 +572,13 @@ bash helper-scripts/modify-nodered-flows.sh mynodered/nodered.json batch <<'EOF'
 [ ... ]
 EOF
 
-# 4. Run relayout to fix node positions (before committing!)
-bash helper-scripts/relayout-nodered-flows.sh mynodered/nodered.json
-
-# 5. Verify the changes with diff summary
+# 4. Verify the changes with diff summary
 bash helper-scripts/summarize-nodered-flows-diff.sh --git mynodered/nodered.json
 
-# 6. Update documentation (check AFFECTED DOCUMENTATION in diff output)
+# 5. Update documentation (check AFFECTED DOCUMENTATION in diff output)
 # Update docs/flows/*.md, docs/subflows/*.md, mynodered/CLAUDE.md as needed
 
-# 7. Commit, then upload
+# 6. Commit, then upload
 bash upload-flows.sh
 ```
 
@@ -595,10 +590,6 @@ bash upload-flows.sh
   best way to get the right fields and values for type-specific properties.
 - **The `--dry-run` flag is your friend.** Use it to verify commands before
   committing to changes.
-- **Positions are handled by relayout.** Don't set `x`/`y` values manually.
-  Run `bash helper-scripts/relayout-nodered-flows.sh mynodered/nodered.json`
-  after making changes but **before committing** -- the tool compares against
-  the last git commit, so it must run while changes are still uncommitted.
 - **After modifying, always run the diff summary.** It shows exactly what
   changed and lists which documentation files need updating.
 - **HA server node types get auto-configured.** You don't need to specify the

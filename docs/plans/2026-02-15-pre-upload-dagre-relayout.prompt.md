@@ -1,1 +1,0 @@
-Implement a pre-upload dagre relayout script that automatically relays out groups containing modified nodes, using the same dagre LR algorithm and settings that the user validated via the @bartbutenaers/node-red-autolayout-sidebar plugin.
