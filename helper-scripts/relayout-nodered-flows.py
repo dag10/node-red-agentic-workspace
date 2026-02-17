@@ -13,7 +13,6 @@ import json
 import os
 import subprocess
 import sys
-from collections import defaultdict
 
 # Import shared utilities from sibling scripts.
 _dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,8 +29,8 @@ DAGRE_SETTINGS = {
     "rankdir": "LR",
     "marginx": 10,
     "marginy": 10,
-    "nodesep": 10,
-    "ranksep": 30,
+    "nodesep": 20,   # vertical space between parallel nodes
+    "ranksep": 50,   # horizontal space between node columns
 }
 
 # Fields that only affect visual layout, not automation behavior.
@@ -151,23 +150,33 @@ def _diff_fields(before, after):
 # ---------------------------------------------------------------------------
 
 def estimate_node_dimensions(node):
-    """Heuristic width/height based on node type and label."""
+    """Heuristic width/height based on node type and label.
+
+    Intentionally overestimates slightly -- extra spacing between nodes
+    looks fine, but overlapping nodes look broken.
+    """
     ntype = node.get("type", "")
 
     if ntype == "junction":
         return 10, 10
 
     if ntype in ("link in", "link out", "link call"):
-        # Wider if label is shown (l: true).
         if node.get("l"):
             label = node.get("name", "")
-            w = max(80, len(label) * 7 + 55)
+            w = max(100, len(label) * 8 + 60)
             return w, 30
         return 30, 30
 
     label = node.get("name", "") or node.get("type", "")
     outputs = len(node.get("wires", []))
-    width = max(100, len(label) * 7 + 55)
+    # 8px/char slightly overestimates Helvetica Neue at 13px.
+    # 60 covers icon (20-30px) + left/right padding (~20px) + port area (~10px).
+    width = max(120, len(label) * 8 + 60)
+
+    # Subflow instances show a subflow badge that adds width.
+    if ntype.startswith("subflow:"):
+        width += 15
+
     height = max(30, outputs * 13 + 17)
     return width, height
 
@@ -317,51 +326,66 @@ def apply_dagre_positions(group_id, dagre_result, after_idx):
     return group_y, old_bottom, new_bottom
 
 
-def shift_groups(relaid_info, after_data, after_idx):
-    """Shift groups below resized groups to avoid overlap.
+GROUP_GAP = 38  # Minimum vertical gap between non-overlapping groups
 
-    relaid_info: list of (group_id, flow_id, old_y, old_bottom, new_bottom)
-    sorted by old_y ascending.
+
+def resolve_group_overlaps(affected_flow_ids, after_data, after_idx, verbose=False):
+    """Resolve vertical group overlaps on flows that had relayout changes.
+
+    For each affected flow, sort top-level groups top-to-bottom and push any
+    overlapping group (and everything below it) downward.
     """
     by_id = after_idx["by_id"]
 
-    # Process per flow tab.
-    by_flow = defaultdict(list)
-    for gid, flow_id, old_y, old_bottom, new_bottom in relaid_info:
-        by_flow[flow_id].append((gid, old_y, old_bottom, new_bottom))
+    for flow_id in affected_flow_ids:
+        # Collect top-level groups on this flow (not nested inside another group).
+        flow_groups = [
+            n for n in after_data
+            if n.get("type") == "group"
+            and n.get("z") == flow_id
+            and not n.get("g")  # not nested
+        ]
+        if len(flow_groups) < 2:
+            continue
 
-    for flow_id, changes in by_flow.items():
-        # Sort by old_y so we process top-to-bottom, accumulating deltas.
-        changes.sort(key=lambda c: c[1])
-        cumulative_delta = 0
+        # Sort by y position.
+        flow_groups.sort(key=lambda g: g.get("y", 0))
 
-        for gid, old_y, old_bottom, new_bottom in changes:
-            # Adjust this group's new_bottom for any prior shifts.
-            adjusted_new_bottom = new_bottom + cumulative_delta
-            delta = adjusted_new_bottom - (old_bottom + cumulative_delta)
+        # Scan for overlaps and shift down.
+        for i in range(1, len(flow_groups)):
+            prev = flow_groups[i - 1]
+            curr = flow_groups[i]
 
-            if delta == 0:
-                continue
+            prev_bottom = prev.get("y", 0) + prev.get("h", 0)
+            curr_top = curr.get("y", 0)
 
-            # Shift all groups on this flow whose y >= old_bottom (the
-            # original boundary), adjusted by cumulative shifts so far.
-            threshold = old_bottom + cumulative_delta
-            for node in after_data:
-                if node.get("type") != "group":
-                    continue
-                if node.get("z") != flow_id:
-                    continue
-                if node["id"] == gid:
-                    continue
-                if node.get("y", 0) >= threshold:
-                    node["y"] = node.get("y", 0) + delta
-                    # Shift member nodes too.
-                    for mid in collect_group_node_ids(node["id"], after_idx):
-                        member = by_id.get(mid, {})
-                        if "y" in member:
-                            member["y"] = member["y"] + delta
+            # Check horizontal overlap (groups that don't overlap in x can
+            # share the same y range).
+            px, pw = prev.get("x", 0), prev.get("w", 0)
+            cx, cw = curr.get("x", 0), curr.get("w", 0)
+            if px + pw <= cx or cx + cw <= px:
+                continue  # No horizontal overlap, skip.
 
-            cumulative_delta += delta
+            gap = curr_top - prev_bottom
+            if gap >= GROUP_GAP:
+                continue  # Enough space, no shift needed.
+
+            # Shift this group and everything below it down.
+            shift = prev_bottom + GROUP_GAP - curr_top
+            if verbose:
+                pname = prev.get("name", "(unnamed)")
+                cname = curr.get("name", "(unnamed)")
+                print(f"  shifting '{cname}' down {int(shift)}px "
+                      f"(was overlapping '{pname}')", file=sys.stderr)
+
+            for j in range(i, len(flow_groups)):
+                g = flow_groups[j]
+                g["y"] = g.get("y", 0) + shift
+                # Shift all member nodes.
+                for mid in collect_group_node_ids(g["id"], after_idx):
+                    member = by_id.get(mid, {})
+                    if "y" in member:
+                        member["y"] = member["y"] + shift
 
 
 # ---------------------------------------------------------------------------
@@ -442,9 +466,10 @@ def main():
     if args.dry_run:
         return
 
-    # Shift groups below resized ones.
+    # Resolve group overlaps on affected flows.
     if relaid_info:
-        shift_groups(relaid_info, after_data, after_idx)
+        affected_flows = set(flow_id for _, flow_id, _, _, _ in relaid_info)
+        resolve_group_overlaps(affected_flows, after_data, after_idx, verbose=args.verbose)
 
     # Write back.
     with open(args.flows, "w") as f:
