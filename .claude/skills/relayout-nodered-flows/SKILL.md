@@ -286,6 +286,17 @@ When new nodes are added to a group that already has well-positioned nodes:
    their immediate neighbors, so you know the widths for spacing.
 3. **Identify new nodes** -- they will be at the default position (x=200, y=200).
 4. **Determine where new nodes fit** in the chain:
+   - **New independent chain** (most common -- e.g., a new trigger->process->action
+     pipeline added alongside existing chains): All nodes in the new chain go below
+     existing nodes.
+     - First new chain's y: `new_y = max_existing_y + SOURCE_NODE_SPACING` (where
+       `max_existing_y` is the maximum y of any existing node in the group, and
+       `SOURCE_NODE_SPACING` = 80 px).
+     - Additional parallel chains: stack at `PARALLEL_CHAIN_SPACING` (60 px) intervals
+       below the first new chain.
+     - All nodes in a single horizontal chain share the same y.
+     - Use the same column x values as the existing nodes where columns align, or
+       compute new column x values using the edge-to-edge spacing formula.
    - **Inserted mid-chain** (between two existing nodes): place at the midpoint x, same
      y as the chain. If there is not enough horizontal space (check using actual widths:
      `gap = next_node_x - prev_node_x - prev_width/2 - next_width/2`; if gap < new_width + 2 * HORIZONTAL_GAP,
@@ -293,16 +304,72 @@ When new nodes are added to a group that already has well-positioned nodes:
      point right by the needed amount.
    - **New branch from an existing node**: place at the next column's x, with y offset by
      `BRANCH_VERTICAL_SPACING` from the nearest sibling branch.
-   - **New source/entry node**: stack below existing sources at `ENTRY_NODE_STACKING` spacing.
+   - **New source/entry node** (additional trigger feeding into an existing chain):
+     stack below existing sources at `SOURCE_NODE_SPACING` (80 px) if the new source
+     is a different type, or `ENTRY_NODE_STACKING` (40 px) if it is the same type as
+     the existing sources.
    - **New tail node**: place to the right of the current rightmost node in the chain,
      using edge-to-edge spacing: `x = rightmost_x + rightmost_width/2 + HORIZONTAL_GAP + new_width/2`.
-5. **Resize the group** if the new nodes extend beyond the current bounding box. Expand
+5. **Compute absolute y coordinates.** For each new node, the y coordinate must be
+   an absolute canvas position, not a relative offset. Verify that every new node's
+   y value is within the expected range for its group (it should be between
+   `group.y + GROUP_PADDING_TOP` and `group.y + group.h - GROUP_PADDING_BOTTOM` after
+   the group is resized). If any new node still has y=200 (the add-node default),
+   that is a bug -- it means the y calculation was skipped.
+6. **Resize the group** if the new nodes extend beyond the current bounding box. Expand
    w and/or h while maintaining padding constants.
-6. **Check for overlaps with groups below** after resizing -- see "Resolve Group Overlaps."
+7. **Check for overlaps with groups below** after resizing -- see "Resolve Group Overlaps."
 
 **"Downstream of the insertion point"** means: starting from the insertion point, follow
 wires forward (output-to-input) recursively to collect all transitively connected nodes.
 Only those nodes get shifted -- nodes on unrelated branches at higher x values stay put.
+
+### Worked Example: Adding a 4-node chain to an existing group
+
+Starting state: A group with existing nodes, max y = 420, group at (34, 19, 1000, 441).
+
+New chain: server-state-changed -> RBE -> function -> subflow instance
+
+**1. Compute y for the new chain:**
+```
+new_y = max_existing_y + SOURCE_NODE_SPACING = 420 + 80 = 500
+```
+All 4 new nodes get y = 500 (they form a single horizontal chain).
+
+**2. Compute x per column** (using widths from estimate-node-size.sh):
+```
+Col 0: x = GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT = 34 + 120 = 154
+Col 1: x = 154 + server_w/2 + 50 + rbe_w/2
+Col 2: x = col1_x + rbe_w/2 + 50 + func_w/2
+Col 3: x = col2_x + func_w/2 + 50 + subflow_w/2
+```
+
+**3. Resize the group:**
+```
+new_group_h = (500 + GROUP_PADDING_BOTTOM) - 19 = 521
+```
+Group becomes (34, 19, 1000, 521).
+
+**4. Build batch (Phase 1 -- positions + group resize):**
+```json
+[
+  {"command": "update-node", "args": {"node_id": "NEW_1", "props": {"x": 154, "y": 500}}},
+  {"command": "update-node", "args": {"node_id": "NEW_2", "props": {"x": 374, "y": 500}}},
+  {"command": "update-node", "args": {"node_id": "NEW_3", "props": {"x": 554, "y": 500}}},
+  {"command": "update-node", "args": {"node_id": "NEW_4", "props": {"x": 754, "y": 500}}},
+  {"command": "update-node", "args": {"node_id": "GROUP_ID", "props": {"x": 34, "y": 19, "w": 1000, "h": 521}}}
+]
+```
+
+**5. Resolve overlaps (Phase 2 -- if needed):**
+
+If the group below was at y=478 (old gap was 18px, now overlapping because the
+group grew from h=441 to h=521):
+```
+delta = (19 + 521 + 18) - 478 = 80
+```
+Build a second batch shifting that group and ALL its member nodes down by 80px.
+Shift every group below it by the same delta too.
 
 ## Algorithm: Resolve Group Overlaps
 
@@ -321,6 +388,7 @@ After any layout change (new group, resized group), check that groups do not ove
    Then shift the overlapping group **and every group below it on the same flow** down
    by `delta`. "Below it" means all groups with `y >= group_below.y` on the same flow tab.
 5. **When shifting a group, translate ALL its member nodes by the same y delta.**
+   This includes newly added nodes that were just positioned in the previous step.
    Do not re-layout the group's internals -- just move everything uniformly.
    Update the group's own `y` by the same delta (its `w` and `h` stay unchanged).
 
@@ -381,6 +449,11 @@ to the notification function, not to the beginning of the chain.
 
 ## Step 3: Apply Positions
 
+**Sanity check before applying:** Scan your batch for any node that still has y=200
+or x=200. These are the add-node defaults and almost certainly indicate a node whose
+position was never calculated. Every new node must have explicit x and y values
+computed from the layout algorithm.
+
 After calculating all positions, apply them in a single batch operation (see examples
 in the algorithms above). Use `update-node` for both regular nodes (setting `x`, `y`)
 and groups (setting `x`, `y`, `w`, `h`).
@@ -405,15 +478,20 @@ After applying positions, verify the layout is correct:
 
 Use this as a shorthand when performing a relayout:
 
-1. Run diff: `summarize-nodered-flows-diff.sh nodered-last-downloaded.json nodered.json`
-2. Query affected groups: `group-nodes <id> --summary` and `--sources --summary`
-3. Batch-measure all nodes: `echo '[...]' | estimate-node-size.sh ... batch`
-4. Build topology (columns by depth from sources)
-5. Compute x per column: `x_next = x_prev + w_prev/2 + 50 + w_next/2`
-6. Compute y per node (stacking, fan-out, parallel chains)
-7. Set group base y (first group at 34, others at `prev_bottom + 18`)
-8. Compute group bbox from node extents + padding
-9. Dry-run batch update, review output
-10. Apply batch update (remove `--dry-run`)
-11. Verify: read back positions, check containment and spacing
-12. Resolve overlaps with groups below if any group grew or was inserted
+1.  Run diff: `summarize-nodered-flows-diff.sh nodered-last-downloaded.json nodered.json`
+2.  Query affected groups: `group-nodes <id> --summary` and `--sources --summary`
+3.  Batch-measure all nodes: `echo '[...]' | estimate-node-size.sh ... batch`
+4.  Build topology (columns by depth from sources)
+5.  Compute x per column: `x_next = x_prev + w_prev/2 + 50 + w_next/2`
+6.  Compute y per node (stacking, fan-out, parallel chains, new independent chains)
+7.  Set group base y (first group at 34, others at `prev_bottom + 18`)
+8.  Compute group bbox from node extents + padding
+9.  Sanity check: no node has y=200 or x=200 (add-node defaults)
+10. **Phase 1:** Dry-run batch update (node positions + group sizes), review output
+11. Apply Phase 1 batch (remove `--dry-run`)
+12. Verify: read back positions, check containment and spacing
+13. **Phase 2:** Resolve overlaps -- if any group grew or was inserted, compute shift
+    deltas for groups below. Build a SECOND batch of update-node commands to shift
+    affected groups and ALL their member nodes (including newly positioned ones).
+    Dry-run, review, then apply.
+14. Final verify: read back positions, check inter-group spacing (18px gaps)
