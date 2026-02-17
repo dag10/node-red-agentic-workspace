@@ -10,6 +10,11 @@ created nodes have default placeholder positions (x=200, y=200) and new groups h
 placeholder dimensions (x=10, y=10, w=200, h=100). This skill repositions them to
 match the project's hand-crafted layout conventions.
 
+> **DRY-RUN FIRST**: Before applying any position changes, always do a dry-run of
+> the batch update to preview what will change. Add `--dry-run` to the
+> `modify-nodered-flows.sh batch` command. Review the output, then run again without
+> `--dry-run` to apply. This catches miscalculations before they corrupt the file.
+
 ## Philosophy
 
 Be conservative. Only reposition what needs repositioning:
@@ -24,7 +29,8 @@ Be conservative. Only reposition what needs repositioning:
 
 ## Step 1: Understand the Changes
 
-Run the diff tool to see what changed:
+Run the diff tool to see what changed. The baseline for comparison is always
+`nodered-last-downloaded.json` (the last deployed state), not the last git commit:
 
 ```bash
 bash helper-scripts/summarize-nodered-flows-diff.sh \
@@ -40,7 +46,7 @@ Categorize changes into these scenarios (a single modification may involve multi
 | **Nodes rewired in existing group** | Usually leave alone; reposition only if topology changed drastically. See "Handle Rewired Nodes." |
 | **Existing group needs to shift** | A group above grew or a new group was inserted above. See "Resolve Group Overlaps." |
 
-## Step 2: Read the Affected Groups
+## Step 2: Read the Affected Groups and Measure Node Sizes
 
 For each group you need to lay out (or adjust), read its current state:
 
@@ -61,6 +67,34 @@ bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
 bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
   connected <node_id> --forward --summary
 ```
+
+### Get node sizes for layout
+
+Use `estimate-node-size.sh` to get accurate pixel dimensions for all nodes you need
+to position. **Use batch mode** when sizing multiple nodes (which is almost always):
+
+```bash
+# Batch mode: get sizes for all nodes in one call (preferred)
+echo '["node_id_1", "node_id_2", "node_id_3"]' | \
+  bash helper-scripts/estimate-node-size.sh mynodered/nodered.json batch
+# Output: {"node_id_1": {"w": 160, "h": 30}, "node_id_2": {"w": 120, "h": 30, "has_button": "left"}, ...}
+
+# Single node (for quick checks)
+bash helper-scripts/estimate-node-size.sh mynodered/nodered.json node <node_id>
+# Output: 160 30
+
+# Full group layout info (member sizes + group bbox)
+bash helper-scripts/estimate-node-size.sh mynodered/nodered.json group-layout <group_id>
+# Output: JSON with {"group": {"id": ..., "w": ..., "h": ...}, "nodes": {"id": {"w": ..., "h": ...}, ...}}
+```
+
+The batch output includes `has_button` for inject nodes (`"left"`) and debug nodes
+(`"right"`). Button nodes have a 20px clickable area that extends beyond the node body;
+account for this when checking edge clearance but not when calculating center-to-center
+spacing.
+
+**Always gather sizes before calculating positions.** The horizontal spacing algorithm
+below depends on knowing the actual width of each node.
 
 ## Numeric Constants
 
@@ -84,16 +118,15 @@ for all positioning calculations.
 | `GROUP_PADDING_LEFT` | 120 px | Group left edge to leftmost node center |
 | `GROUP_PADDING_RIGHT` | 90 px | Rightmost node center to group right edge |
 
-### Horizontal spacing (center-to-center between consecutive nodes)
+### Horizontal spacing (edge-to-edge gap between consecutive nodes)
 
-| Constant | Value | When to use |
-|----------|-------|-------------|
-| `HORIZONTAL_SPACING_DEFAULT` | 200 px | Standard nodes (function, change, switch, api-call-service) |
-| `HORIZONTAL_SPACING_TIGHT` | 120 px | Compact nodes (junction, link in, link out, link call) |
-| `HORIZONTAL_SPACING_WIDE` | 260 px | Wide nodes (server-state-changed, named inject, trigger-state) |
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `HORIZONTAL_GAP` | 50 px | Visible gap between the right edge of one node and the left edge of the next |
 
-Choose spacing based on the **source** node of each hop -- use the wider spacing when
-the node being spaced away from is wide.
+This is the consistent visible space between node edges. The actual center-to-center
+distance varies based on node widths -- wide nodes are spaced further apart and narrow
+nodes closer together, but the gap between their edges stays uniform.
 
 ### Vertical spacing
 
@@ -104,27 +137,6 @@ the node being spaced away from is wide.
 | `SOURCE_NODE_SPACING` | 80 px | Between entry nodes of different types |
 | `PARALLEL_CHAIN_SPACING` | 60 px | Between replicated identical chains |
 | `TEST_INJECT_OFFSET_Y` | 60 px | Below the main flow line for test inject nodes |
-
-## Node Width Estimation
-
-Horizontal spacing depends on node width. Since we cannot query rendered widths,
-use these estimates:
-
-| Node type | Estimated width (px) |
-|-----------|---------------------|
-| junction | 10 |
-| link in, link out, link call | 30 |
-| inject (no name) | 90 |
-| inject (with name) | 140-180 |
-| function, change, delay, switch | 120-160 (varies by name length) |
-| api-call-service | 140-180 |
-| server-state-changed, trigger-state | 180-220 |
-| api-current-state | 160-200 |
-| subflow instance | 140-200 (varies by subflow name) |
-| debug | 100-140 |
-
-**Rule of thumb:** `max(100, 30 + len(name) * 7)` pixels, capped at 220.
-For junctions, always 10 px. For link nodes, always 30 px.
 
 ## Algorithm: Layout a New Group
 
@@ -139,7 +151,18 @@ bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
   group-nodes <group_id> --sources --summary
 ```
 
-### 2. Build the topology
+### 2. Gather all node sizes
+
+Collect the IDs of every node in the group and get their sizes in one batch call:
+
+```bash
+echo '["id_a", "id_b", "id_c", ...]' | \
+  bash helper-scripts/estimate-node-size.sh mynodered/nodered.json batch
+```
+
+Store the resulting widths -- you will need them for horizontal positioning.
+
+### 3. Build the topology
 
 From each source, trace forward through wires to build a mental model of the chain(s).
 Use `connected --forward --summary` from each source. Assign each node a **column**
@@ -152,20 +175,37 @@ Use `connected --forward --summary` from each source. Assign each node a **colum
 If a node is reachable from multiple sources at different depths, use the **longest
 path** (maximum depth) -- this keeps it to the right of all its predecessors.
 
-### 3. Position columns left to right
+### 4. Position columns left to right (edge-to-edge spacing)
 
 Start column 0 at:
 ```
-x = GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT  (= 34 + 120 = 154)
+x_col0 = GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT  (= 34 + 120 = 154)
 ```
 
-For each subsequent column, add the horizontal spacing based on the node connecting
-into it:
-- From a junction or link node: add `HORIZONTAL_SPACING_TIGHT` (120)
-- From a wide trigger/event node: add `HORIZONTAL_SPACING_WIDE` (260)
-- Otherwise: add `HORIZONTAL_SPACING_DEFAULT` (200)
+For each subsequent column, calculate the x position using **actual node widths** to
+prevent overlaps. The goal is a consistent `HORIZONTAL_GAP` (50 px) of visible space
+between the right edge of a node and the left edge of the next node.
 
-### 4. Position nodes vertically within columns
+**For each hop from column N to column N+1:**
+
+1. Find the widest node in column N (call it `w_prev`) and the widest node in
+   column N+1 (call it `w_next`). Use actual widths from `estimate-node-size.sh`.
+2. Calculate the center-to-center distance:
+   ```
+   center_to_center = w_prev/2 + HORIZONTAL_GAP + w_next/2
+   ```
+3. Place column N+1 at:
+   ```
+   x_col(N+1) = x_col(N) + center_to_center
+   ```
+
+**Example:** A 160px-wide function node connects to a 100px junction. The junction's
+center x = function_x + 160/2 + 50 + 100/2 = function_x + 80 + 50 + 50 = function_x + 180.
+
+When a column has multiple nodes (fan-out branches at different y values), use the
+widest node in that column for spacing since all nodes in a column share the same x.
+
+### 5. Position nodes vertically within columns
 
 **Single node in a column** -- place at the y of its upstream parent's output:
 - If the parent has one output going to this node, use the parent's y.
@@ -189,13 +229,26 @@ node vertically among its targets:
 **Parallel replicated chains** (same logic repeated per device):
 Stack at `PARALLEL_CHAIN_SPACING` (60 px) between chains.
 
-### 5. Determine the group's base y
+### 6. Determine the group's base y and placement in the vertical stack
 
-- **First group on the flow:** topmost node y = `GROUP_LEFT_MARGIN + GROUP_PADDING_TOP`
-  (= 34 + 40 = 74). So the group's top = 34.
-- **Group below another group:** topmost node y = `previous_group_bottom + GROUP_VERTICAL_GAP + GROUP_PADDING_TOP`. So the group's top = `previous_group_bottom + GROUP_VERTICAL_GAP`.
+- **First group on the flow (or no groups above):** topmost node y =
+  `GROUP_LEFT_MARGIN + GROUP_PADDING_TOP` (= 34 + 40 = 74). So the group's top = 34.
 
-### 6. Calculate group bounding box
+- **New group inserted into an existing vertical stack:** Find the correct position
+  in the stack based on logical ordering:
+  - If the new group is related to (wired from) an existing group, place it
+    immediately below that group.
+  - If the new group is independent, place it at the bottom of the stack (below
+    all existing groups).
+  - Topmost node y = `group_above_bottom + GROUP_VERTICAL_GAP + GROUP_PADDING_TOP`.
+  - After inserting, check for overlaps with groups that were already below the
+    insertion point -- see "Resolve Group Overlaps."
+
+- **Group below another group (general rule):** topmost node y =
+  `previous_group_bottom + GROUP_VERTICAL_GAP + GROUP_PADDING_TOP`.
+  The group's top = `previous_group_bottom + GROUP_VERTICAL_GAP`.
+
+### 7. Calculate group bounding box
 
 ```
 group.x = leftmost_node_x - GROUP_PADDING_LEFT
@@ -207,36 +260,49 @@ group.h = (bottommost_node_y + GROUP_PADDING_BOTTOM) - group.y
 Typically `group.x` will be `GROUP_LEFT_MARGIN` (34) since `leftmost_node_x` =
 `GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT` (154).
 
-### 7. Apply positions with batch update-node
+### 8. Apply positions with batch update-node
+
+**First, dry-run to verify:**
 
 ```bash
-bash helper-scripts/modify-nodered-flows.sh mynodered/nodered.json batch <<'EOF'
+bash helper-scripts/modify-nodered-flows.sh mynodered/nodered.json batch --dry-run <<'EOF'
 [
   {"command": "update-node", "args": {"node_id": "<node_id>", "props": {"x": 154, "y": 74}}},
-  {"command": "update-node", "args": {"node_id": "<node_id>", "props": {"x": 354, "y": 74}}},
+  {"command": "update-node", "args": {"node_id": "<node_id>", "props": {"x": 334, "y": 74}}},
   ...
   {"command": "update-node", "args": {"node_id": "<group_id>", "props": {"x": 34, "y": 34, "w": 500, "h": 120}}}
 ]
 EOF
 ```
 
+Review the dry-run output, then apply for real (same command without `--dry-run`).
+
 ## Algorithm: Add Nodes to an Existing Group
 
 When new nodes are added to a group that already has well-positioned nodes:
 
 1. **Read the existing group layout** -- query all nodes with positions.
-2. **Identify new nodes** -- they will be at the default position (x=200, y=200).
-3. **Determine where new nodes fit** in the chain:
+2. **Get sizes for all relevant nodes** -- use batch mode on at least the new nodes and
+   their immediate neighbors, so you know the widths for spacing.
+3. **Identify new nodes** -- they will be at the default position (x=200, y=200).
+4. **Determine where new nodes fit** in the chain:
    - **Inserted mid-chain** (between two existing nodes): place at the midpoint x, same
-     y as the chain. If there is not enough horizontal space, shift all downstream nodes
-     right by `HORIZONTAL_SPACING_DEFAULT`.
+     y as the chain. If there is not enough horizontal space (check using actual widths:
+     `gap = next_node_x - prev_node_x - prev_width/2 - next_width/2`; if gap < new_width + 2 * HORIZONTAL_GAP,
+     there is not enough room), shift all nodes that are wired downstream of the insertion
+     point right by the needed amount.
    - **New branch from an existing node**: place at the next column's x, with y offset by
      `BRANCH_VERTICAL_SPACING` from the nearest sibling branch.
    - **New source/entry node**: stack below existing sources at `ENTRY_NODE_STACKING` spacing.
-   - **New tail node**: place to the right of the current rightmost node in the chain, same y.
-4. **Resize the group** if the new nodes extend beyond the current bounding box. Expand
+   - **New tail node**: place to the right of the current rightmost node in the chain,
+     using edge-to-edge spacing: `x = rightmost_x + rightmost_width/2 + HORIZONTAL_GAP + new_width/2`.
+5. **Resize the group** if the new nodes extend beyond the current bounding box. Expand
    w and/or h while maintaining padding constants.
-5. **Check for downstream group overlaps** after resizing -- see "Resolve Group Overlaps."
+6. **Check for overlaps with groups below** after resizing -- see "Resolve Group Overlaps."
+
+**"Downstream of the insertion point"** means: starting from the insertion point, follow
+wires forward (output-to-input) recursively to collect all transitively connected nodes.
+Only those nodes get shifted -- nodes on unrelated branches at higher x values stay put.
 
 ## Algorithm: Resolve Group Overlaps
 
@@ -248,10 +314,15 @@ After any layout change (new group, resized group), check that groups do not ove
 2. Sort by y (top to bottom).
 3. For each consecutive pair, check:
    `group_above.y + group_above.h + GROUP_VERTICAL_GAP > group_below.y`
-4. If overlap exists: compute the delta needed, then shift the lower group (and ALL
-   subsequent groups below it) down by that delta.
+4. If overlap exists, compute the shift delta:
+   ```
+   delta = (group_above.y + group_above.h + GROUP_VERTICAL_GAP) - group_below.y
+   ```
+   Then shift the overlapping group **and every group below it on the same flow** down
+   by `delta`. "Below it" means all groups with `y >= group_below.y` on the same flow tab.
 5. **When shifting a group, translate ALL its member nodes by the same y delta.**
    Do not re-layout the group's internals -- just move everything uniformly.
+   Update the group's own `y` by the same delta (its `w` and `h` stay unchanged).
 
 ### Side-by-side groups
 
@@ -314,6 +385,8 @@ After calculating all positions, apply them in a single batch operation (see exa
 in the algorithms above). Use `update-node` for both regular nodes (setting `x`, `y`)
 and groups (setting `x`, `y`, `w`, `h`).
 
+**Always dry-run first** (`--dry-run` flag), review the changes, then apply for real.
+
 ## Step 4: Verify
 
 After applying positions, verify the layout is correct:
@@ -327,3 +400,20 @@ After applying positions, verify the layout is correct:
 4. **Check inter-group spacing**: consecutive groups on the same flow should have at
    least `GROUP_VERTICAL_GAP` (18 px) between them.
 5. If anything looks wrong, adjust and re-apply.
+
+## Quick Reference Checklist
+
+Use this as a shorthand when performing a relayout:
+
+1. Run diff: `summarize-nodered-flows-diff.sh nodered-last-downloaded.json nodered.json`
+2. Query affected groups: `group-nodes <id> --summary` and `--sources --summary`
+3. Batch-measure all nodes: `echo '[...]' | estimate-node-size.sh ... batch`
+4. Build topology (columns by depth from sources)
+5. Compute x per column: `x_next = x_prev + w_prev/2 + 50 + w_next/2`
+6. Compute y per node (stacking, fan-out, parallel chains)
+7. Set group base y (first group at 34, others at `prev_bottom + 18`)
+8. Compute group bbox from node extents + padding
+9. Dry-run batch update, review output
+10. Apply batch update (remove `--dry-run`)
+11. Verify: read back positions, check containment and spacing
+12. Resolve overlaps with groups below if any group grew or was inserted
