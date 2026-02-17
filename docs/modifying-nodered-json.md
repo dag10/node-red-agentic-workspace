@@ -575,10 +575,13 @@ EOF
 # 4. Verify the changes with diff summary
 bash helper-scripts/summarize-nodered-flows-diff.sh --git mynodered/nodered.json
 
-# 5. Update documentation (check AFFECTED DOCUMENTATION in diff output)
+# 5. Relayout new/modified groups
+# Follow the /relayout-nodered-flows skill to position new nodes and size groups
+
+# 6. Update documentation (check AFFECTED DOCUMENTATION in diff output)
 # Update docs/flows/*.md, docs/subflows/*.md, mynodered/CLAUDE.md as needed
 
-# 6. Commit, then upload
+# 7. Commit, then upload
 bash upload-flows.sh
 ```
 

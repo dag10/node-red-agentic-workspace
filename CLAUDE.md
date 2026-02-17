@@ -36,7 +36,16 @@ This check only needs to happen **once per user prompt** — if the top-level ag
 
 ### After modifying flows
 
-After making changes to `mynodered/nodered.json`, update the documentation:
+After making changes to `mynodered/nodered.json`:
+
+0. **Relayout modified groups** to fix node positions before committing.
+   Read and follow the `/relayout-nodered-flows` skill (`.claude/skills/relayout-nodered-flows/SKILL.md`).
+   This positions newly added nodes and groups according to the project's layout
+   conventions, and adjusts existing groups to prevent overlaps. This must happen
+   before committing, while uncommitted changes exist -- the skill uses the diff
+   between `nodered-last-downloaded.json` and `nodered.json` to understand what changed.
+
+Then update the documentation:
 
 1. **Run the diff summary** and review the **AFFECTED DOCUMENTATION** section at the bottom:
    ```
