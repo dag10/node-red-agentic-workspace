@@ -79,8 +79,8 @@ fi
 ANALYZED_FILE="$MYNODERED_DIR/nodered-last-analyzed.json"
 if ! diff -q "$FLOWS_FILE" "$ANALYZED_FILE" &>/dev/null; then
   echo "Analysis did not complete — skipping commit."
-  echo "Run this script again to retry."
-  exit 0
+  echo ""
+  echo "To analyze in the future, ask claude to /analyze-flows"
 fi
 
 # --- Commit to submodule ---
