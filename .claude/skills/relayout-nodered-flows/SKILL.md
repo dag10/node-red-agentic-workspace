@@ -432,7 +432,18 @@ After any layout change (new group, resized group), check that groups do not ove
 ### Side-by-side groups
 
 Groups placed horizontally adjacent (same y range, different x) should have at least
-`GROUP_HORIZONTAL_GAP` (20 px) between them. If a group's width grew:
+`GROUP_HORIZONTAL_GAP` (20 px) between them. Side-by-side overlaps can arise in two ways:
+
+- **A group's width grew** (e.g., nodes were added, making it wider). Its right edge
+  may now intrude into a neighboring group's x range.
+- **A group was shifted or inserted** adjacent to an existing group at the same y range.
+
+To detect horizontal overlaps: for every pair of groups on the same flow, check whether
+their bounding boxes overlap in **both** x and y. Two groups overlap if and only if
+`x1 < x2 + w2` and `x2 < x1 + w1` and `y1 < y2 + h2` and `y2 < y1 + h1`. This catches
+side-by-side overlaps that a simple top-to-bottom vertical scan would miss.
+
+If an overlap exists:
 - Check if the right neighbor now overlaps.
 - If so, shift the right group (and its nodes) rightward by the needed amount.
 
@@ -541,3 +552,8 @@ Use this as a shorthand when performing a relayout:
     affected groups and ALL their member nodes (including newly positioned ones).
     Dry-run, review, then apply.
 15. Final verify: read back positions, check inter-group spacing (20px gaps)
+16. **Check for inter-group overlaps beyond immediate neighbors.** When a group grew
+    or shifted, check ALL groups on the same flow for bounding-box overlaps -- not just
+    vertically adjacent ones. A group that grew wider may now overlap a side-by-side
+    group that wasn't part of the current modification. Use the 2D overlap test:
+    `x1 < x2+w2 && x2 < x1+w1 && y1 < y2+h2 && y2 < y1+h1`.

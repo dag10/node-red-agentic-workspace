@@ -1,0 +1,1 @@
+Nodes were added to this group in your recent commit (665d665e80f3b268) but that group grew in width and now overlaps this group: 6875e536db1a7077. The latter should have been repositioned to ensure logical non-overlapping arrangement of groups. Update guidance and find+fix any overlapping groups.
