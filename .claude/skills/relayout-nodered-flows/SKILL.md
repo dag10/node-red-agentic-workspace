@@ -99,15 +99,16 @@ below depends on knowing the actual width of each node.
 ## Numeric Constants
 
 These constants are derived from detailed analysis of four hand-crafted flows. Use them
-for all positioning calculations.
+for all positioning calculations. All constants are designed so that positions computed
+from them will naturally land on the 20px grid when starting positions are on-grid.
 
 ### Inter-group spacing
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `GROUP_VERTICAL_GAP` | 18 px | Vertical gap between stacked groups |
-| `GROUP_HORIZONTAL_GAP` | 28 px | Horizontal gap between side-by-side groups |
-| `GROUP_LEFT_MARGIN` | 34 px | X coordinate of a group's left edge |
+| `GROUP_VERTICAL_GAP` | 20 px | Vertical gap between stacked groups |
+| `GROUP_HORIZONTAL_GAP` | 20 px | Horizontal gap between side-by-side groups |
+| `GROUP_LEFT_MARGIN` | 40 px | X coordinate of a group's left edge |
 
 ### Group padding (group edge to outermost node center)
 
@@ -116,13 +117,13 @@ for all positioning calculations.
 | `GROUP_PADDING_TOP` | 40 px | Group top edge to topmost node center |
 | `GROUP_PADDING_BOTTOM` | 40 px | Bottommost node center to group bottom edge |
 | `GROUP_PADDING_LEFT` | 120 px | Group left edge to leftmost node center |
-| `GROUP_PADDING_RIGHT` | 90 px | Rightmost node center to group right edge |
+| `GROUP_PADDING_RIGHT` | 80 px | Rightmost node center to group right edge |
 
 ### Horizontal spacing (edge-to-edge gap between consecutive nodes)
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `HORIZONTAL_GAP` | 50 px | Visible gap between the right edge of one node and the left edge of the next |
+| `HORIZONTAL_GAP` | 60 px | Visible gap between the right edge of one node and the left edge of the next |
 
 This is the consistent visible space between node edges. The actual center-to-center
 distance varies based on node widths -- wide nodes are spaced further apart and narrow
@@ -132,11 +133,36 @@ nodes closer together, but the gap between their edges stays uniform.
 
 | Constant | Value | When to use |
 |----------|-------|-------------|
+| `MIN_VERTICAL_NODE_GAP` | 30 px | Minimum edge-to-edge gap between any two vertically adjacent nodes. Verify after layout. |
 | `BRANCH_VERTICAL_SPACING` | 60 px | Between branch outputs from a multi-output node |
-| `ENTRY_NODE_STACKING` | 40 px | Between stacked entry nodes of the same type |
+| `ENTRY_NODE_STACKING` | 60 px | Between stacked entry nodes of the same type |
 | `SOURCE_NODE_SPACING` | 80 px | Between entry nodes of different types |
 | `PARALLEL_CHAIN_SPACING` | 60 px | Between replicated identical chains |
 | `TEST_INJECT_OFFSET_Y` | 60 px | Below the main flow line for test inject nodes |
+
+### Grid alignment
+
+Node-RED's editor snaps to a 20px grid. All positions written to `nodered.json` must
+conform to this grid:
+
+- **All `x`, `y` values** (node positions) must be multiples of 20.
+- **All `x`, `y`, `w`, `h` values** (group bounding boxes) must be multiples of 20.
+- **All position values must be integers** -- never floats (no `200.0`, only `200`).
+
+When computing positions, apply grid snapping as the final step:
+```
+snap(v) = int(round(v / 20) * 20)
+```
+
+For example, if a formula yields x=154, snap to x=160. If it yields y=1398, snap to y=1400.
+
+The constants in this document are designed so that positions computed from them will
+naturally land on the 20px grid when the starting positions are on-grid. If a calculation
+produces an off-grid result (due to rounding or unusual node dimensions), always snap
+to the nearest grid point. After snapping, verify that the edge-to-edge gap between
+every pair of vertically adjacent nodes is at least `MIN_VERTICAL_NODE_GAP` (30px).
+If snapping compressed a gap below the minimum, shift the lower node down to the next
+grid point.
 
 ## Algorithm: Layout a New Group
 
@@ -179,11 +205,11 @@ path** (maximum depth) -- this keeps it to the right of all its predecessors.
 
 Start column 0 at:
 ```
-x_col0 = GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT  (= 34 + 120 = 154)
+x_col0 = GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT  (= 40 + 120 = 160)
 ```
 
 For each subsequent column, calculate the x position using **actual node widths** to
-prevent overlaps. The goal is a consistent `HORIZONTAL_GAP` (50 px) of visible space
+prevent overlaps. The goal is a consistent `HORIZONTAL_GAP` (60 px) of visible space
 between the right edge of a node and the left edge of the next node.
 
 **For each hop from column N to column N+1:**
@@ -199,8 +225,9 @@ between the right edge of a node and the left edge of the next node.
    x_col(N+1) = x_col(N) + center_to_center
    ```
 
-**Example:** A 160px-wide function node connects to a 100px junction. The junction's
-center x = function_x + 160/2 + 50 + 100/2 = function_x + 80 + 50 + 50 = function_x + 180.
+**Example:** A 160px-wide function node connects to a 120px-wide call-service node.
+The target's center x = function_x + 160/2 + 60 + 120/2 = function_x + 80 + 60 + 60
+= function_x + 200.
 
 When a column has multiple nodes (fan-out branches at different y values), use the
 widest node in that column for spacing since all nodes in a column share the same x.
@@ -212,7 +239,7 @@ widest node in that column for spacing since all nodes in a column share the sam
 - If the parent has multiple outputs, see fan-out rules below.
 
 **Multiple source nodes (column 0):**
-- Same type (e.g., multiple injects): stack at `ENTRY_NODE_STACKING` (40 px) intervals.
+- Same type (e.g., multiple injects): stack at `ENTRY_NODE_STACKING` (60 px) intervals.
 - Different types: stack at `SOURCE_NODE_SPACING` (80 px) intervals.
 - Test inject nodes: place below the production triggers at `TEST_INJECT_OFFSET_Y`
   (60 px) below the nearest production source.
@@ -221,10 +248,18 @@ widest node in that column for spacing since all nodes in a column share the sam
 **Fan-out (multi-output node):**
 When a node has N outputs going to N different downstream nodes, center the source
 node vertically among its targets:
-- 2 outputs: targets at `parent_y - 30` and `parent_y + 30` (60 px apart, centered)
-- 3 outputs: targets at `parent_y - 60`, `parent_y`, `parent_y + 60`
-- N outputs: spread at `BRANCH_VERTICAL_SPACING` (60 px) intervals, centered on `parent_y`
-- General formula: target_i_y = `parent_y + (i - (N-1)/2) * 60`
+- General formula: target_i_y = `parent_y + (i - (N-1)/2) * BRANCH_VERTICAL_SPACING`
+- Snap each target to the 20px grid: `target_i_y = snap(target_i_y)`
+- 2 outputs: raw targets at `parent_y - 30` and `parent_y + 30`. After snapping:
+  e.g., parent_y=300 -> targets 280 and 320 (both on-grid, 40px gap = 10px edge gap,
+  too small). Instead shift to 260 and 320 (60px gap, 30px edge gap, meets minimum).
+  The simplest approach: place first target at `snap(parent_y - 30)` and second at
+  `first_target + 60` -- this guarantees the 60px spacing and grid alignment.
+- 3 outputs: targets at `parent_y - 60`, `parent_y`, `parent_y + 60` (already on-grid
+  when parent_y is on-grid)
+- N outputs: spread at `BRANCH_VERTICAL_SPACING` (60 px) intervals, centered on `parent_y`,
+  snap each to grid, then verify every consecutive pair has at least `MIN_VERTICAL_NODE_GAP`
+  (30px) edge-to-edge gap
 
 **Parallel replicated chains** (same logic repeated per device):
 Stack at `PARALLEL_CHAIN_SPACING` (60 px) between chains.
@@ -232,7 +267,7 @@ Stack at `PARALLEL_CHAIN_SPACING` (60 px) between chains.
 ### 6. Determine the group's base y and placement in the vertical stack
 
 - **First group on the flow (or no groups above):** topmost node y =
-  `GROUP_LEFT_MARGIN + GROUP_PADDING_TOP` (= 34 + 40 = 74). So the group's top = 34.
+  `GROUP_LEFT_MARGIN + GROUP_PADDING_TOP` (= 40 + 40 = 80). So the group's top = 40.
 
 - **New group inserted into an existing vertical stack:** Find the correct position
   in the stack based on logical ordering:
@@ -257,8 +292,9 @@ group.w = (rightmost_node_x + GROUP_PADDING_RIGHT) - group.x
 group.h = (bottommost_node_y + GROUP_PADDING_BOTTOM) - group.y
 ```
 
-Typically `group.x` will be `GROUP_LEFT_MARGIN` (34) since `leftmost_node_x` =
-`GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT` (154).
+Typically `group.x` will be `GROUP_LEFT_MARGIN` (40) since `leftmost_node_x` =
+`GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT` (160). All group bounding box values
+(x, y, w, h) must be multiples of 20 and integers.
 
 ### 8. Apply positions with batch update-node
 
@@ -267,10 +303,10 @@ Typically `group.x` will be `GROUP_LEFT_MARGIN` (34) since `leftmost_node_x` =
 ```bash
 bash helper-scripts/modify-nodered-flows.sh mynodered/nodered.json batch --dry-run <<'EOF'
 [
-  {"command": "update-node", "args": {"node_id": "<node_id>", "props": {"x": 154, "y": 74}}},
-  {"command": "update-node", "args": {"node_id": "<node_id>", "props": {"x": 334, "y": 74}}},
+  {"command": "update-node", "args": {"node_id": "<node_id>", "props": {"x": 160, "y": 80}}},
+  {"command": "update-node", "args": {"node_id": "<node_id>", "props": {"x": 360, "y": 80}}},
   ...
-  {"command": "update-node", "args": {"node_id": "<group_id>", "props": {"x": 34, "y": 34, "w": 500, "h": 120}}}
+  {"command": "update-node", "args": {"node_id": "<group_id>", "props": {"x": 40, "y": 40, "w": 500, "h": 120}}}
 ]
 EOF
 ```
@@ -306,10 +342,11 @@ When new nodes are added to a group that already has well-positioned nodes:
      `BRANCH_VERTICAL_SPACING` from the nearest sibling branch.
    - **New source/entry node** (additional trigger feeding into an existing chain):
      stack below existing sources at `SOURCE_NODE_SPACING` (80 px) if the new source
-     is a different type, or `ENTRY_NODE_STACKING` (40 px) if it is the same type as
+     is a different type, or `ENTRY_NODE_STACKING` (60 px) if it is the same type as
      the existing sources.
    - **New tail node**: place to the right of the current rightmost node in the chain,
      using edge-to-edge spacing: `x = rightmost_x + rightmost_width/2 + HORIZONTAL_GAP + new_width/2`.
+     Snap the result to the 20px grid.
 5. **Compute absolute y coordinates.** For each new node, the y coordinate must be
    an absolute canvas position, not a relative offset. Verify that every new node's
    y value is within the expected range for its group (it should be between
@@ -326,7 +363,7 @@ Only those nodes get shifted -- nodes on unrelated branches at higher x values s
 
 ### Worked Example: Adding a 4-node chain to an existing group
 
-Starting state: A group with existing nodes, max y = 420, group at (34, 19, 1000, 441).
+Starting state: A group with existing nodes, max y = 420, group at (40, 20, 1000, 440).
 
 New chain: server-state-changed -> RBE -> function -> subflow instance
 
@@ -338,35 +375,35 @@ All 4 new nodes get y = 500 (they form a single horizontal chain).
 
 **2. Compute x per column** (using widths from estimate-node-size.sh):
 ```
-Col 0: x = GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT = 34 + 120 = 154
-Col 1: x = 154 + server_w/2 + 50 + rbe_w/2
-Col 2: x = col1_x + rbe_w/2 + 50 + func_w/2
-Col 3: x = col2_x + func_w/2 + 50 + subflow_w/2
+Col 0: x = GROUP_LEFT_MARGIN + GROUP_PADDING_LEFT = 40 + 120 = 160
+Col 1: x = 160 + server_w/2 + 60 + rbe_w/2
+Col 2: x = col1_x + rbe_w/2 + 60 + func_w/2
+Col 3: x = col2_x + func_w/2 + 60 + subflow_w/2
 ```
 
 **3. Resize the group:**
 ```
-new_group_h = (500 + GROUP_PADDING_BOTTOM) - 19 = 521
+new_group_h = (500 + GROUP_PADDING_BOTTOM) - 20 = 520
 ```
-Group becomes (34, 19, 1000, 521).
+Group becomes (40, 20, 1000, 520).
 
 **4. Build batch (Phase 1 -- positions + group resize):**
 ```json
 [
-  {"command": "update-node", "args": {"node_id": "NEW_1", "props": {"x": 154, "y": 500}}},
-  {"command": "update-node", "args": {"node_id": "NEW_2", "props": {"x": 374, "y": 500}}},
-  {"command": "update-node", "args": {"node_id": "NEW_3", "props": {"x": 554, "y": 500}}},
-  {"command": "update-node", "args": {"node_id": "NEW_4", "props": {"x": 754, "y": 500}}},
-  {"command": "update-node", "args": {"node_id": "GROUP_ID", "props": {"x": 34, "y": 19, "w": 1000, "h": 521}}}
+  {"command": "update-node", "args": {"node_id": "NEW_1", "props": {"x": 160, "y": 500}}},
+  {"command": "update-node", "args": {"node_id": "NEW_2", "props": {"x": 380, "y": 500}}},
+  {"command": "update-node", "args": {"node_id": "NEW_3", "props": {"x": 560, "y": 500}}},
+  {"command": "update-node", "args": {"node_id": "NEW_4", "props": {"x": 760, "y": 500}}},
+  {"command": "update-node", "args": {"node_id": "GROUP_ID", "props": {"x": 40, "y": 20, "w": 1000, "h": 520}}}
 ]
 ```
 
 **5. Resolve overlaps (Phase 2 -- if needed):**
 
-If the group below was at y=478 (old gap was 18px, now overlapping because the
-group grew from h=441 to h=521):
+If the group below was at y=480 (old gap was 20px, now overlapping because the
+group grew from h=440 to h=520):
 ```
-delta = (19 + 521 + 18) - 478 = 80
+delta = (20 + 520 + 20) - 480 = 80
 ```
 Build a second batch shifting that group and ALL its member nodes down by 80px.
 Shift every group below it by the same delta too.
@@ -395,7 +432,7 @@ After any layout change (new group, resized group), check that groups do not ove
 ### Side-by-side groups
 
 Groups placed horizontally adjacent (same y range, different x) should have at least
-`GROUP_HORIZONTAL_GAP` (28 px) between them. If a group's width grew:
+`GROUP_HORIZONTAL_GAP` (20 px) between them. If a group's width grew:
 - Check if the right neighbor now overlaps.
 - If so, shift the right group (and its nodes) rightward by the needed amount.
 
@@ -425,19 +462,20 @@ Center the source node vertically among its outputs. Space outputs at
 
 ### Fan-in (many sources to one junction/node)
 Stack source nodes vertically, merging into a junction or the next processing node.
-Use `ENTRY_NODE_STACKING` (40 px) for same-type sources, `SOURCE_NODE_SPACING` (80 px)
+Use `ENTRY_NODE_STACKING` (60 px) for same-type sources, `SOURCE_NODE_SPACING` (80 px)
 for different types.
 
 ### Switch with symmetric branches
 Place the switch node at the **vertical center** of its output range. For 2 outputs:
-branches at switch_y - 30 and switch_y + 30.
+compute raw targets at switch_y - 30 and switch_y + 30, then snap both to the 20px grid.
+Use the approach from the fan-out section to ensure 60px spacing and grid alignment.
 
 ### Parallel replicated chains (per-device logic)
 Identical chains repeated for each device, stacked at `PARALLEL_CHAIN_SPACING` (60 px).
 Each chain is a horizontal line at a different y. All chains share the same column x values.
 
 ### Subroutine groups (called via link nodes)
-Place **side-by-side** with the calling group using `GROUP_HORIZONTAL_GAP` (28 px),
+Place **side-by-side** with the calling group using `GROUP_HORIZONTAL_GAP` (20 px),
 aligned at the same y as the calling group's top edge. The subroutine group's `link in`
 node should be at its left edge, visually adjacent to the calling group's `link call`
 or `link out` node.
@@ -449,10 +487,13 @@ to the notification function, not to the beginning of the chain.
 
 ## Step 3: Apply Positions
 
-**Sanity check before applying:** Scan your batch for any node that still has y=200
-or x=200. These are the add-node defaults and almost certainly indicate a node whose
-position was never calculated. Every new node must have explicit x and y values
-computed from the layout algorithm.
+**Sanity check before applying:** Scan your batch for:
+- Any node that still has y=200 or x=200 (add-node defaults -- position was never calculated)
+- Any position value that is not a multiple of 20 (off-grid)
+- Any position value that is a float instead of an integer (e.g., 154.0 instead of 160)
+
+Every new node must have explicit x and y values computed from the layout algorithm,
+snapped to the 20px grid, and expressed as integers.
 
 After calculating all positions, apply them in a single batch operation (see examples
 in the algorithms above). Use `update-node` for both regular nodes (setting `x`, `y`)
@@ -471,8 +512,12 @@ After applying positions, verify the layout is correct:
 3. **Check group containment**: every node's (x, y) should fall within its group's
    bounding box with appropriate padding.
 4. **Check inter-group spacing**: consecutive groups on the same flow should have at
-   least `GROUP_VERTICAL_GAP` (18 px) between them.
-5. If anything looks wrong, adjust and re-apply.
+   least `GROUP_VERTICAL_GAP` (20 px) between them.
+5. **Check grid alignment**: every x, y, w, h value in the batch must be a multiple of 20
+   and an integer. No floats, no off-grid values.
+6. **Check minimum vertical gaps**: every pair of vertically adjacent nodes must have at
+   least `MIN_VERTICAL_NODE_GAP` (30px) edge-to-edge gap. Edge gap = `abs(y2 - y1) - (h1/2 + h2/2)`.
+7. If anything looks wrong, adjust and re-apply.
 
 ## Quick Reference Checklist
 
@@ -482,16 +527,17 @@ Use this as a shorthand when performing a relayout:
 2.  Query affected groups: `group-nodes <id> --summary` and `--sources --summary`
 3.  Batch-measure all nodes: `echo '[...]' | estimate-node-size.sh ... batch`
 4.  Build topology (columns by depth from sources)
-5.  Compute x per column: `x_next = x_prev + w_prev/2 + 50 + w_next/2`
+5.  Compute x per column: `x_next = x_prev + w_prev/2 + 60 + w_next/2`
 6.  Compute y per node (stacking, fan-out, parallel chains, new independent chains)
-7.  Set group base y (first group at 34, others at `prev_bottom + 18`)
-8.  Compute group bbox from node extents + padding
-9.  Sanity check: no node has y=200 or x=200 (add-node defaults)
-10. **Phase 1:** Dry-run batch update (node positions + group sizes), review output
-11. Apply Phase 1 batch (remove `--dry-run`)
-12. Verify: read back positions, check containment and spacing
-13. **Phase 2:** Resolve overlaps -- if any group grew or was inserted, compute shift
+7.  Snap all positions to 20px grid: `snap(v) = int(round(v / 20) * 20)`
+8.  Set group base y (first group at 40, others at `prev_bottom + 20`)
+9.  Compute group bbox from node extents + padding
+10. Sanity check: no node has y=200 or x=200 (defaults); all positions are multiples of 20; all are integers
+11. **Phase 1:** Dry-run batch update (node positions + group sizes), review output
+12. Apply Phase 1 batch (remove `--dry-run`)
+13. Verify: read back positions, check containment, spacing, grid alignment, and min vertical gaps
+14. **Phase 2:** Resolve overlaps -- if any group grew or was inserted, compute shift
     deltas for groups below. Build a SECOND batch of update-node commands to shift
     affected groups and ALL their member nodes (including newly positioned ones).
     Dry-run, review, then apply.
-14. Final verify: read back positions, check inter-group spacing (18px gaps)
+15. Final verify: read back positions, check inter-group spacing (20px gaps)

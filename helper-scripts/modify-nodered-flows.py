@@ -78,14 +78,33 @@ def sort_keys_recursive(obj):
     return obj
 
 
+def coerce_positions(data):
+    """Ensure position fields are integers, not floats.
+
+    Node-RED positions should always be integers. This catches cases where
+    Python math (e.g., w/2) produces floats that would be written as 200.0
+    instead of 200 in the JSON output.
+    """
+    for node in data:
+        if not isinstance(node, dict):
+            continue
+        # Groups have x, y, w, h; regular nodes have x, y
+        fields = ("x", "y", "w", "h") if node.get("type") == "group" else ("x", "y")
+        for field in fields:
+            if field in node and isinstance(node[field], float):
+                node[field] = int(round(node[field]))
+
+
 def write_normalized(data, path):
     """Write flows JSON matching normalize-json.sh output exactly.
 
     Steps (must match normalize-json.sh):
-    1. Recursively sort all dict keys alphabetically.
-    2. Sort top-level array by 'id' field (if all elements are dicts with 'id').
-    3. Write with json.dump(indent=2, ensure_ascii=False) + trailing newline.
+    1. Coerce position fields (x, y, w, h) to integers.
+    2. Recursively sort all dict keys alphabetically.
+    3. Sort top-level array by 'id' field (if all elements are dicts with 'id').
+    4. Write with json.dump(indent=2, ensure_ascii=False) + trailing newline.
     """
+    coerce_positions(data)
     data = [sort_keys_recursive(node) for node in data]
     if all(isinstance(e, dict) and "id" in e for e in data):
         data.sort(key=lambda e: e["id"])
