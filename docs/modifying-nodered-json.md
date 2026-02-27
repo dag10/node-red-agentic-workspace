@@ -25,6 +25,13 @@ the JSON structure is essential before making changes.
 - **HA server config is auto-populated.** When adding HA node types
   (`api-call-service`, `server-state-changed`, `trigger-state`, etc.), the
   `server` field is auto-set if there's exactly one server config node.
+- **HA node types have versioned schemas.** Node types like `api-call-service`
+  have a `version` field and version-specific required properties. If you omit
+  these, Node-RED may fail to read fields like `domain`, causing runtime errors
+  like `Service undefined.turn_on not found`. The `add-node` command does NOT
+  auto-populate version or version-specific fields — you must copy them from
+  an existing node of the same type. This is why querying a template node is
+  essential (see above).
 - **Use `--dry-run` to preview** any command without modifying the file.
 
 ## Commands Reference
@@ -62,6 +69,12 @@ modify-nodered-flows.sh <flows.json> add-node <type> --on <flow_id> [--name <nam
 - Defaults to 1 output port (empty `wires: [[]]`). Types `debug` and `link out`
   default to 0 output ports. Override with `--props '{"outputs": N}'`.
 - Props are merged over the base fields (so you can override anything).
+- **Does NOT auto-populate version-specific fields.** For HA node types like
+  `api-call-service`, you MUST include `version` and all version-required fields
+  in `--props`. Query an existing node of the same type with
+  `query-nodered-flows.sh ... node <id> --full` and copy these fields. For
+  example, `api-call-service` v7 requires: `"version": 7, "areaId": [],
+  "deviceId": [], "floorId": [], "labelId": [], "debugenabled": false`.
 
 **Output:**
 ```
@@ -595,8 +608,10 @@ bash upload-flows.sh
   committing to changes.
 - **After modifying, always run the diff summary.** It shows exactly what
   changed and lists which documentation files need updating.
-- **HA server node types get auto-configured.** You don't need to specify the
-  `server` field for `api-call-service`, `server-state-changed`, etc.
+- **HA server node types get `server` auto-configured** -- you don't need to
+  specify it. But `version` and version-specific fields (like `areaId`,
+  `deviceId`, `floorId`, `labelId`, `debugenabled` for `api-call-service` v7)
+  are NOT auto-populated. Always copy these from a template node.
 - **Props merging is shallow.** For nested objects, always pass the complete
   object in `--props`. Don't expect deep merging.
 - **Delete cleans up automatically.** When you delete a node, its wires, links,
