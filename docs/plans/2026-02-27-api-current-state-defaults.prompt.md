@@ -1,0 +1,4 @@
+Look at commit 91640221ea59ca76903fa18d88f67bca56ba83b5. In your recent commit where you added node 2a7b4da289b1c1c7 to check if the sun was up, whenever I deployed it with upload-flows.sh the "is sun up?" node would fail with an error: "InputError: Invalid for value: undefined". But when I then redeployed the node from the Node-RED UI, it worked. The commit I mentioned has the changes that the Node-RED web app made that fixed the issue. It looks like Node-RED added these attributes to the node:
+    "for": "",
+    "forType": "num",
+I'm not too familiar with what happened here, but it seems like we need to update our doc guidance on writing nodes (or perhaps update the scripts that the guidance has agents use?) to prevent whatever happened here. If you see the issue, update the guidance accordingly.

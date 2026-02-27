@@ -46,6 +46,132 @@ IMMUTABLE_FIELDS = {"id", "type"}
 # Node types with 0 default output ports.
 ZERO_OUTPUT_TYPES = {"debug", "link out"}
 
+# Default fields for known HA node type versions.
+# NOTE: These defaults are injected by _cmd_add_node for recognized HA node types.
+# The agent's --props are merged OVER these, so any explicit prop wins.
+# If adding a new node type or version, derive defaults from an existing node
+# of that type in the flows (query-nodered-flows.sh ... search --type <type>).
+HA_NODE_DEFAULTS = {
+    ("api-current-state", 3): {
+        "version": 3,
+        "blockInputOverrides": False,
+        "entity_id": "",
+        "entity_location": "data",
+        "for": "0",
+        "forType": "num",
+        "forUnits": "minutes",
+        "halt_if": "",
+        "halt_if_compare": "is",
+        "halt_if_type": "str",
+        "outputProperties": [
+            {"property": "payload", "propertyType": "msg", "value": "", "valueType": "entityState"},
+            {"property": "data", "propertyType": "msg", "value": "", "valueType": "entity"},
+        ],
+        "override_data": "msg",
+        "override_payload": "msg",
+        "override_topic": False,
+        "state_location": "payload",
+        "state_type": "str",
+    },
+    ("api-call-service", 7): {
+        "version": 7,
+        "action": "",
+        "areaId": [],
+        "blockInputOverrides": False,
+        "data": "",
+        "dataType": "jsonata",
+        "debugenabled": False,
+        "deviceId": [],
+        "domain": "",
+        "entityId": [],
+        "floorId": [],
+        "labelId": [],
+        "mergeContext": "",
+        "mustacheAltTags": False,
+        "outputProperties": [],
+        "queue": "none",
+        "service": "",
+    },
+    ("server-state-changed", 6): {
+        "version": 6,
+        "entities": {"entity": [], "regex": [], "substring": []},
+        "exposeAsEntityConfig": "",
+        "for": "0",
+        "forType": "num",
+        "forUnits": "minutes",
+        "ifState": "",
+        "ifStateOperator": "is",
+        "ifStateType": "str",
+        "ignoreCurrentStateUnavailable": False,
+        "ignoreCurrentStateUnknown": False,
+        "ignorePrevStateNull": False,
+        "ignorePrevStateUnavailable": False,
+        "ignorePrevStateUnknown": False,
+        "outputInitially": False,
+        "outputOnlyOnStateChange": False,
+        "outputProperties": [
+            {"property": "payload", "propertyType": "msg", "value": "", "valueType": "entityState"},
+            {"property": "data", "propertyType": "msg", "value": "", "valueType": "eventData"},
+            {"property": "topic", "propertyType": "msg", "value": "", "valueType": "triggerId"},
+        ],
+        "stateType": "str",
+    },
+    ("trigger-state", 5): {
+        "version": 5,
+        "constraints": [],
+        "customOutputs": [],
+        "debugEnabled": False,
+        "enableInput": False,
+        "entities": {"entity": [], "regex": [], "substring": []},
+        "exposeAsEntityConfig": "",
+        "inputs": 0,
+        "outputInitially": False,
+        "outputs": 2,
+        "stateType": "str",
+    },
+    ("poll-state", 3): {
+        "version": 3,
+        "entityId": "",
+        "exposeAsEntityConfig": "",
+        "ifState": "",
+        "ifStateOperator": "is",
+        "ifStateType": "str",
+        "outputInitially": False,
+        "outputOnChanged": False,
+        "outputProperties": [
+            {"property": "payload", "propertyType": "msg", "value": "", "valueType": "entityState"},
+            {"property": "data", "propertyType": "msg", "value": "", "valueType": "entity"},
+            {"property": "topic", "propertyType": "msg", "value": "", "valueType": "triggerId"},
+        ],
+        "stateType": "str",
+        "updateInterval": "5",
+        "updateIntervalType": "num",
+        "updateIntervalUnits": "minutes",
+    },
+}
+
+# Index: node_type -> {version: defaults_dict, ...}
+# Built once at import time for fast lookup.
+_HA_DEFAULTS_BY_TYPE = {}
+for (_ntype, _ver), _defaults in HA_NODE_DEFAULTS.items():
+    _HA_DEFAULTS_BY_TYPE.setdefault(_ntype, {})[_ver] = _defaults
+
+
+def _get_ha_defaults(node_type, props):
+    """Get HA default fields for a node type, or empty dict if unknown.
+
+    If props includes 'version', uses that version's defaults.
+    Otherwise uses the highest known version for the type.
+    """
+    versions = _HA_DEFAULTS_BY_TYPE.get(node_type)
+    if not versions:
+        return {}
+    requested_version = props.get("version")
+    if requested_version is not None and requested_version in versions:
+        return versions[requested_version]
+    # Use highest known version
+    return versions[max(versions)]
+
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -183,6 +309,13 @@ def _cmd_add_node(data, *, node_type, flow_id, name="", group_id=None,
     if props is None:
         props = {}
 
+    # Merge HA defaults under agent props (agent wins).
+    ha_defaults = _get_ha_defaults(node_type, props)
+    if ha_defaults:
+        merged_props = copy.deepcopy(ha_defaults)
+        merged_props.update(props)
+        props = merged_props
+
     _validate_flow(data, flow_id)
 
     if group_id:
@@ -232,7 +365,8 @@ def _cmd_add_node(data, *, node_type, flow_id, name="", group_id=None,
 
     group_part = f" group={group_id}" if group_id else ""
     name_part = f' "{name}"' if name else ' ""'
-    msg = f"added {new_id} {node_type}{name_part} on={flow_id}{group_part}"
+    defaults_part = f" (defaults: {node_type} v{ha_defaults['version']})" if ha_defaults else ""
+    msg = f"added {new_id} {node_type}{name_part} on={flow_id}{group_part}{defaults_part}"
 
     if dry_run:
         return new_id, f"(dry-run) {msg}"

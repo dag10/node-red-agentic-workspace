@@ -25,13 +25,14 @@ the JSON structure is essential before making changes.
 - **HA server config is auto-populated.** When adding HA node types
   (`api-call-service`, `server-state-changed`, `trigger-state`, etc.), the
   `server` field is auto-set if there's exactly one server config node.
-- **HA node types have versioned schemas.** Node types like `api-call-service`
-  have a `version` field and version-specific required properties. If you omit
-  these, Node-RED may fail to read fields like `domain`, causing runtime errors
-  like `Service undefined.turn_on not found`. The `add-node` command does NOT
-  auto-populate version or version-specific fields — you must copy them from
-  an existing node of the same type. This is why querying a template node is
-  essential (see above).
+- **HA node type defaults are auto-injected.** For recognized HA node types
+  (`api-current-state` v3, `api-call-service` v7, `server-state-changed` v6,
+  `trigger-state` v5, `poll-state` v3), `add-node` auto-injects safe default
+  values for all type-specific fields. Your `--props` override any defaults,
+  so you only need to specify the fields you want to customize (like
+  `entity_id`, `halt_if`, `domain`, `action`, etc.). For unrecognized node
+  types or versions, you must provide all required fields manually -- query
+  an existing node of the same type as a template.
 - **Use `--dry-run` to preview** any command without modifying the file.
 
 ## Commands Reference
@@ -68,17 +69,18 @@ modify-nodered-flows.sh <flows.json> add-node <type> --on <flow_id> [--name <nam
 - Sets core fields: `id`, `type`, `z`, `name`, `wires`, `x`, `y`.
 - Defaults to 1 output port (empty `wires: [[]]`). Types `debug` and `link out`
   default to 0 output ports. Override with `--props '{"outputs": N}'`.
-- Props are merged over the base fields (so you can override anything).
-- **Does NOT auto-populate version-specific fields.** For HA node types like
-  `api-call-service`, you MUST include `version` and all version-required fields
-  in `--props`. Query an existing node of the same type with
-  `query-nodered-flows.sh ... node <id> --full` and copy these fields. For
-  example, `api-call-service` v7 requires: `"version": 7, "areaId": [],
-  "deviceId": [], "floorId": [], "labelId": [], "debugenabled": false`.
+- **Auto-injects HA node type defaults** for recognized types before merging
+  props. This means `version`, `outputProperties`, and all type-specific
+  structural fields are set automatically. Your `--props` override any
+  defaults. See the [HA Node Type Defaults Reference](#ha-node-type-defaults-reference)
+  for the full list of defaults per type.
+- For unrecognized node types, only core fields are set -- you must provide
+  all type-specific fields in `--props`.
+- Props are merged over defaults and base fields (so you can override anything).
 
 **Output:**
 ```
-added <id> <type> "<name>" on=<flow_id> [group=<group_id>]
+added <id> <type> "<name>" on=<flow_id> [group=<group_id>] [(defaults: <type> v<N>)]
 ```
 
 **Example:**
@@ -609,9 +611,11 @@ bash upload-flows.sh
 - **After modifying, always run the diff summary.** It shows exactly what
   changed and lists which documentation files need updating.
 - **HA server node types get `server` auto-configured** -- you don't need to
-  specify it. But `version` and version-specific fields (like `areaId`,
-  `deviceId`, `floorId`, `labelId`, `debugenabled` for `api-call-service` v7)
-  are NOT auto-populated. Always copy these from a template node.
+  specify it. For recognized HA node types, `version` and all type-specific
+  structural fields are also auto-injected as defaults. You only need to
+  pass the semantic fields you want to customize (entity IDs, conditions,
+  actions, etc.). For unrecognized types, query a template node and copy
+  all required fields.
 - **Props merging is shallow.** For nested objects, always pass the complete
   object in `--props`. Don't expect deep merging.
 - **Delete cleans up automatically.** When you delete a node, its wires, links,
@@ -620,3 +624,124 @@ bash upload-flows.sh
   member nodes too. Use with care.
 - **Wire and link are idempotent.** Running the same wire/link command twice
   is safe -- it just reports "already wired/linked".
+
+## HA Node Type Defaults Reference
+
+The `add-node` command auto-injects default fields for the following HA node
+types. Your `--props` override any of these values. For types not listed here,
+you must provide all required fields manually.
+
+### `api-current-state` v3
+
+| Field | Default |
+|-------|---------|
+| `version` | `3` |
+| `blockInputOverrides` | `false` |
+| `entity_id` | `""` |
+| `entity_location` | `"data"` |
+| `for` | `"0"` |
+| `forType` | `"num"` |
+| `forUnits` | `"minutes"` |
+| `halt_if` | `""` |
+| `halt_if_compare` | `"is"` |
+| `halt_if_type` | `"str"` |
+| `outputProperties` | `[{payload: entityState}, {data: entity}]` |
+| `override_data` | `"msg"` |
+| `override_payload` | `"msg"` |
+| `override_topic` | `false` |
+| `state_location` | `"payload"` |
+| `state_type` | `"str"` |
+
+**Typical agent-supplied fields:** `entity_id`, `halt_if`, `halt_if_compare`,
+`halt_if_type`, `for`, `forType`, `forUnits`, `outputProperties`.
+
+### `api-call-service` v7
+
+| Field | Default |
+|-------|---------|
+| `version` | `7` |
+| `action` | `""` |
+| `areaId` | `[]` |
+| `blockInputOverrides` | `false` |
+| `data` | `""` |
+| `dataType` | `"jsonata"` |
+| `debugenabled` | `false` |
+| `deviceId` | `[]` |
+| `domain` | `""` |
+| `entityId` | `[]` |
+| `floorId` | `[]` |
+| `labelId` | `[]` |
+| `mergeContext` | `""` |
+| `mustacheAltTags` | `false` |
+| `outputProperties` | `[]` |
+| `queue` | `"none"` |
+| `service` | `""` |
+
+**Typical agent-supplied fields:** `domain`, `service`, `action`, `entityId`,
+`data`, `dataType`.
+
+### `server-state-changed` v6
+
+| Field | Default |
+|-------|---------|
+| `version` | `6` |
+| `entities` | `{"entity": [], "regex": [], "substring": []}` |
+| `exposeAsEntityConfig` | `""` |
+| `for` | `"0"` |
+| `forType` | `"num"` |
+| `forUnits` | `"minutes"` |
+| `ifState` | `""` |
+| `ifStateOperator` | `"is"` |
+| `ifStateType` | `"str"` |
+| `ignoreCurrentStateUnavailable` | `false` |
+| `ignoreCurrentStateUnknown` | `false` |
+| `ignorePrevStateNull` | `false` |
+| `ignorePrevStateUnavailable` | `false` |
+| `ignorePrevStateUnknown` | `false` |
+| `outputInitially` | `false` |
+| `outputOnlyOnStateChange` | `false` |
+| `outputProperties` | `[{payload: entityState}, {data: eventData}, {topic: triggerId}]` |
+| `stateType` | `"str"` |
+
+**Typical agent-supplied fields:** `entities`, `ifState`, `ifStateOperator`,
+`ifStateType`, `outputProperties`, `for`, `forType`, `forUnits`.
+
+### `trigger-state` v5
+
+| Field | Default |
+|-------|---------|
+| `version` | `5` |
+| `constraints` | `[]` |
+| `customOutputs` | `[]` |
+| `debugEnabled` | `false` |
+| `enableInput` | `false` |
+| `entities` | `{"entity": [], "regex": [], "substring": []}` |
+| `exposeAsEntityConfig` | `""` |
+| `inputs` | `0` |
+| `outputInitially` | `false` |
+| `outputs` | `2` |
+| `stateType` | `"str"` |
+
+**Typical agent-supplied fields:** `entities`, `constraints`, `customOutputs`,
+`outputs`, `enableInput`.
+
+### `poll-state` v3
+
+| Field | Default |
+|-------|---------|
+| `version` | `3` |
+| `entityId` | `""` |
+| `exposeAsEntityConfig` | `""` |
+| `ifState` | `""` |
+| `ifStateOperator` | `"is"` |
+| `ifStateType` | `"str"` |
+| `outputInitially` | `false` |
+| `outputOnChanged` | `false` |
+| `outputProperties` | `[{payload: entityState}, {data: entity}, {topic: triggerId}]` |
+| `stateType` | `"str"` |
+| `updateInterval` | `"5"` |
+| `updateIntervalType` | `"num"` |
+| `updateIntervalUnits` | `"minutes"` |
+
+**Typical agent-supplied fields:** `entityId`, `ifState`, `ifStateOperator`,
+`updateInterval`, `updateIntervalUnits`, `outputProperties`.
