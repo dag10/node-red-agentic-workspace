@@ -264,6 +264,31 @@ node vertically among its targets:
 **Parallel replicated chains** (same logic repeated per device):
 Stack at `PARALLEL_CHAIN_SPACING` (60 px) between chains.
 
+### 5b. Verify positions with spatial queries (collision check)
+
+After computing all node positions but **before applying them**, use spatial queries
+to verify that new nodes won't overlap with existing nodes:
+
+```bash
+# Check a region around each new node's target position for existing nodes.
+# Expand by half the node's height + MIN_VERTICAL_NODE_GAP on each side.
+bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
+  rect <x-w/2-30> <y-h/2-30> <x+w/2+30> <y+h/2+30> --flow <flow_id> --summary
+```
+
+If the query returns existing nodes, those positions would create an overlap. Adjust
+the new node's y position downward (or upward) until the region is clear. For fan-out
+branches, this often means increasing `BRANCH_VERTICAL_SPACING` beyond the 60px minimum
+when the downstream chains are tall (multiple columns of nodes at different y values).
+
+**Fan-out chains with tall branches:** When a multi-output node (switch, router) fans
+out to branches where each branch is itself a multi-node chain at different y values,
+the 60px `BRANCH_VERTICAL_SPACING` may not be enough. The effective height of each
+branch is not just one node's height — it's the full vertical extent from the topmost
+to bottommost node in that branch. Check each branch's vertical extent and ensure
+the gap between the bottom of one branch and the top of the next is at least
+`MIN_VERTICAL_NODE_GAP` (30px edge-to-edge).
+
 ### 6. Determine the group's base y and placement in the vertical stack
 
 - **First group on the flow (or no groups above):** topmost node y =
@@ -410,21 +435,36 @@ Shift every group below it by the same delta too.
 
 ## Algorithm: Resolve Group Overlaps
 
-After any layout change (new group, resized group), check that groups do not overlap:
+After any layout change (new group, resized group), check that groups do not overlap.
+Use the `nearby` spatial query to detect overlapping groups efficiently:
+
+```bash
+# Find groups/nodes within 0px of the modified group's boundary (i.e., overlapping)
+bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
+  nearby <group_id> --margin 0 --summary
+```
+
+Any groups in the results are overlapping. To also check for near-misses (groups that
+are closer than the required gap), use `--margin 20` (the `GROUP_VERTICAL_GAP`).
 
 ### Vertically stacked groups
 
-1. List all groups on the affected flow with their bounding boxes.
-2. Sort by y (top to bottom).
-3. For each consecutive pair, check:
+1. Find groups below the modified group using a semi-infinite rect:
+   ```bash
+   # Everything below the group's bottom edge, sorted closest-first
+   bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
+     rect -inf <group_y+group_h> inf inf --flow <flow_id> --summary
+   ```
+2. For the nearest group below, check the gap:
    `group_above.y + group_above.h + GROUP_VERTICAL_GAP > group_below.y`
-4. If overlap exists, compute the shift delta:
+3. If overlap exists, compute the shift delta:
    ```
    delta = (group_above.y + group_above.h + GROUP_VERTICAL_GAP) - group_below.y
    ```
    Then shift the overlapping group **and every group below it on the same flow** down
-   by `delta`. "Below it" means all groups with `y >= group_below.y` on the same flow tab.
-5. **When shifting a group, translate ALL its member nodes by the same y delta.**
+   by `delta`. The semi-infinite rect query above gives you all groups below, sorted by
+   y — shift all of them by the same delta.
+4. **When shifting a group, translate ALL its member nodes by the same y delta.**
    This includes newly added nodes that were just positioned in the previous step.
    Do not re-layout the group's internals -- just move everything uniformly.
    Update the group's own `y` by the same delta (its `w` and `h` stay unchanged).
@@ -432,16 +472,20 @@ After any layout change (new group, resized group), check that groups do not ove
 ### Side-by-side groups
 
 Groups placed horizontally adjacent (same y range, different x) should have at least
-`GROUP_HORIZONTAL_GAP` (20 px) between them. Side-by-side overlaps can arise in two ways:
+`GROUP_HORIZONTAL_GAP` (20 px) between them. Use `nearby` to detect these overlaps:
+
+```bash
+# Find anything within 20px of the group (the minimum gap)
+bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
+  nearby <group_id> --margin 20 --summary
+```
+
+Any groups in the result that overlap horizontally need to be shifted. Side-by-side
+overlaps can arise when:
 
 - **A group's width grew** (e.g., nodes were added, making it wider). Its right edge
   may now intrude into a neighboring group's x range.
 - **A group was shifted or inserted** adjacent to an existing group at the same y range.
-
-To detect horizontal overlaps: for every pair of groups on the same flow, check whether
-their bounding boxes overlap in **both** x and y. Two groups overlap if and only if
-`x1 < x2 + w2` and `x2 < x1 + w1` and `y1 < y2 + h2` and `y2 < y1 + h1`. This catches
-side-by-side overlaps that a simple top-to-bottom vertical scan would miss.
 
 If an overlap exists:
 - Check if the right neighbor now overlaps.
@@ -518,12 +562,24 @@ After applying positions, verify the layout is correct:
 
 1. **Read back affected groups** with `group-nodes <id> --summary` to confirm positions
    look reasonable.
-2. **Check for collisions**: no two nodes in the same group should share the exact
-   same (x, y).
+2. **Check for node-node overlaps within groups**: for each group that was modified,
+   query each new node's neighborhood to ensure no overlapping nodes:
+   ```bash
+   # For each new node, check if anything is too close (within 30px vertical gap)
+   bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
+     nearby <node_id> --margin 30 --summary
+   ```
+   Any non-wired-neighbor node returned is a potential overlap. Verify that the
+   edge-to-edge gap is at least `MIN_VERTICAL_NODE_GAP` (30px) using actual sizes.
 3. **Check group containment**: every node's (x, y) should fall within its group's
    bounding box with appropriate padding.
-4. **Check inter-group spacing**: consecutive groups on the same flow should have at
-   least `GROUP_VERTICAL_GAP` (20 px) between them.
+4. **Check inter-group spacing** using the `nearby` spatial query:
+   ```bash
+   bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
+     nearby <group_id> --margin 20 --summary
+   ```
+   If any groups appear in the results, they're within `GROUP_VERTICAL_GAP` (20 px) of
+   the modified group and may need to be shifted.
 5. **Check grid alignment**: every x, y, w, h value in the batch must be a multiple of 20
    and an integer. No floats, no off-grid values.
 6. **Check minimum vertical gaps**: every pair of vertically adjacent nodes must have at
@@ -540,20 +596,23 @@ Use this as a shorthand when performing a relayout:
 4.  Build topology (columns by depth from sources)
 5.  Compute x per column: `x_next = x_prev + w_prev/2 + 60 + w_next/2`
 6.  Compute y per node (stacking, fan-out, parallel chains, new independent chains)
-7.  Snap all positions to 20px grid: `snap(v) = int(round(v / 20) * 20)`
-8.  Set group base y (first group at 40, others at `prev_bottom + 20`)
-9.  Compute group bbox from node extents + padding
-10. Sanity check: no node has y=200 or x=200 (defaults); all positions are multiples of 20; all are integers
-11. **Phase 1:** Dry-run batch update (node positions + group sizes), review output
-12. Apply Phase 1 batch (remove `--dry-run`)
-13. Verify: read back positions, check containment, spacing, grid alignment, and min vertical gaps
-14. **Phase 2:** Resolve overlaps -- if any group grew or was inserted, compute shift
-    deltas for groups below. Build a SECOND batch of update-node commands to shift
-    affected groups and ALL their member nodes (including newly positioned ones).
-    Dry-run, review, then apply.
-15. Final verify: read back positions, check inter-group spacing (20px gaps)
-16. **Check for inter-group overlaps beyond immediate neighbors.** When a group grew
-    or shifted, check ALL groups on the same flow for bounding-box overlaps -- not just
-    vertically adjacent ones. A group that grew wider may now overlap a side-by-side
-    group that wasn't part of the current modification. Use the 2D overlap test:
-    `x1 < x2+w2 && x2 < x1+w1 && y1 < y2+h2 && y2 < y1+h1`.
+7.  **Pre-placement collision check**: for each new node position, use `rect` to check
+    for existing nodes at the target location. Expand the rect by node half-size +
+    `MIN_VERTICAL_NODE_GAP`. Adjust positions if collisions are found.
+    For fan-out branches, check the full vertical extent of each branch (not just the
+    first node) to ensure branches don't overlap.
+8.  Snap all positions to 20px grid: `snap(v) = int(round(v / 20) * 20)`
+9.  Set group base y (first group at 40, others at `prev_bottom + 20`)
+10. Compute group bbox from node extents + padding
+11. Sanity check: no node has y=200 or x=200 (defaults); all positions are multiples of 20; all are integers
+12. **Phase 1:** Dry-run batch update (node positions + group sizes), review output
+13. Apply Phase 1 batch (remove `--dry-run`)
+14. **Verify with spatial queries**: for each new node, run `nearby <id> --margin 30`.
+    Any unexpected neighbors indicate a collision. Check edge-to-edge gaps with actual sizes.
+15. **Phase 2:** Resolve overlaps — use `nearby <group_id> --margin 20` on each modified
+    group. If groups appear in results, compute shift deltas. Use
+    `rect -inf <group_bottom> inf inf --flow <flow_id>` to find everything below that
+    needs shifting. Build a SECOND batch of update-node commands to shift affected groups
+    and ALL their member nodes. Dry-run, review, then apply.
+16. **Final verify**: run `nearby <group_id> --margin 20` on each modified group — results
+    should be empty (no groups within the minimum gap). Check inter-group spacing (20px gaps).

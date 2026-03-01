@@ -271,6 +271,61 @@ query-nodered-flows.sh flows.json search --type api-call-service --flow d5bd27f8
 - `--name P`: Regex match (case-insensitive) on node name.
 - `--flow ID`: Only nodes on a specific flow/subflow (by z value).
 
+#### rect \<x1\> \<y1\> \<x2\> \<y2\> [flags]
+
+Find all nodes and groups within a rectangle on the canvas. Nodes match when
+their center point (x, y) falls within the rect. Groups match when their
+bounding box overlaps the rect.
+
+Coordinates accept `inf` and `-inf` for semi-infinite edges. This enables
+directional queries like "everything below y=500" or "everything to the right
+of x=300". Semi-infinite rects auto-sort results by position along the
+infinite axis (closest to the finite edge first). Finite rects sort by
+distance from the rect center.
+
+```
+# Everything below y=500 on a specific flow (sorted by y, closest first)
+query-nodered-flows.sh flows.json rect -inf 500 inf inf --flow <flow_id> --summary
+
+# Nodes in a specific region
+query-nodered-flows.sh flows.json rect 100 200 600 400 --flow <flow_id> --summary
+
+# Everything to the right of x=800 (sorted by x, closest first)
+query-nodered-flows.sh flows.json rect 800 -inf inf inf --flow <flow_id> --summary
+
+# Within a specific group only
+query-nodered-flows.sh flows.json rect 0 0 inf inf --group <group_id> --summary
+```
+
+Flags:
+- `--flow ID`: Limit to nodes on this flow/tab.
+- `--group ID`: Limit to nodes in this group (recursive).
+- `--summary`, `--full`: Output format.
+
+#### nearby \<id\> [--margin PX]
+
+Find nodes and groups near a given node or group. For groups, expands the
+stored bounding box (x, y, w, h) by the margin on all sides and finds
+everything outside the group that overlaps the expanded area. For nodes,
+creates a square of 2 * margin centered on the node's position. Always
+scoped to the same flow/subflow as the reference.
+
+For group queries, the group itself and all its member nodes are excluded
+from results — you get only things *outside* the group that are nearby.
+
+```
+# Groups and nodes within 50px of a group's boundary
+query-nodered-flows.sh flows.json nearby <group_id> --margin 50 --summary
+
+# Nodes within 80px of a specific node
+query-nodered-flows.sh flows.json nearby <node_id> --margin 80 --summary
+```
+
+Results are sorted by distance from the reference center (closest first).
+
+- `--margin PX`: Expansion margin in pixels (default: 100).
+- `--summary`, `--full`: Output format.
+
 ### The --sources flag
 
 `--sources` on `flow-nodes` and `group-nodes` identifies **scope-local entry
@@ -391,6 +446,28 @@ is useful when:
    ```
    query-nodered-flows.sh flows.json connected <link_in_id> --dont-follow-links --summary
    ```
+
+### "Will my new node positions collide with existing nodes?"
+
+Use the spatial queries during relayout to detect collisions before they happen:
+
+1. **Before placing a node**, check what's already in the target area:
+   ```
+   query-nodered-flows.sh flows.json rect <x-80> <y-40> <x+80> <y+40> --flow <flow_id> --summary
+   ```
+   Expand the rect by half the node's estimated dimensions plus the minimum gap.
+
+2. **After resizing a group**, check for groups below it that need shifting:
+   ```
+   query-nodered-flows.sh flows.json rect -inf <group_bottom> inf inf --flow <flow_id> --summary
+   ```
+   This returns everything below the group, sorted closest-first.
+
+3. **Check a group's surroundings** for overlap after repositioning:
+   ```
+   query-nodered-flows.sh flows.json nearby <group_id> --margin 20 --summary
+   ```
+   Anything returned overlaps or is within 20px of the group (the minimum gap).
 
 ### "I need to plan a modification to an existing automation"
 

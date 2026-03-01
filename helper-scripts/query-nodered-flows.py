@@ -438,6 +438,204 @@ def cmd_subflow_instances(idx, args):
     output_nodes(instances, idx, summary, full)
 
 
+# ---------------------------------------------------------------------------
+# Spatial query helpers
+# ---------------------------------------------------------------------------
+
+# Types that don't live on the canvas (no meaningful x, y position).
+_NON_SPATIAL_TYPES = {"tab", "subflow"}
+
+
+def _parse_coord(s):
+    """Parse a coordinate value, supporting 'inf' and '-inf'."""
+    if s in ("inf", "+inf"):
+        return float("inf")
+    if s == "-inf":
+        return float("-inf")
+    try:
+        return float(s)
+    except ValueError:
+        die(f"invalid coordinate: {s}")
+
+
+def _overlaps_rect(node, x1, y1, x2, y2):
+    """Check if a node's center or a group's bbox overlaps the query rect."""
+    ntype = node.get("type", "")
+    if ntype in _NON_SPATIAL_TYPES:
+        return False
+
+    if ntype == "group":
+        # Group: bounding-box overlap test (x, y is top-left, w/h stored).
+        gx = node.get("x", 0)
+        gy = node.get("y", 0)
+        gw = node.get("w", 0)
+        gh = node.get("h", 0)
+        return gx < x2 and (gx + gw) > x1 and gy < y2 and (gy + gh) > y1
+
+    # Regular node: center point within rect.
+    nx = node.get("x")
+    ny = node.get("y")
+    if nx is None or ny is None:
+        return False
+    return x1 <= nx <= x2 and y1 <= ny <= y2
+
+
+def _make_rect_sort_key(x1, y1, x2, y2):
+    """Return a sort-key function for nodes matched by a rect query.
+
+    Semi-infinite rects auto-sort by position along the infinite axis
+    (closest to the finite edge first).  Finite rects sort by distance
+    from the rect center.
+    """
+    x_inf = (x1 == float("-inf")) or (x2 == float("inf"))
+    y_inf = (y1 == float("-inf")) or (y2 == float("inf"))
+
+    if y_inf and not x_inf:
+        return lambda n: n.get("y", 0)
+    if x_inf and not y_inf:
+        return lambda n: n.get("x", 0)
+
+    # Both finite, or both infinite -- distance from best-available center.
+    cx = (x1 + x2) / 2 if x1 != float("-inf") and x2 != float("inf") else 0
+    cy = (y1 + y2) / 2 if y1 != float("-inf") and y2 != float("inf") else 0
+    if x1 == float("-inf") and x2 != float("inf"):
+        cx = x2
+    elif x2 == float("inf") and x1 != float("-inf"):
+        cx = x1
+    if y1 == float("-inf") and y2 != float("inf"):
+        cy = y2
+    elif y2 == float("inf") and y1 != float("-inf"):
+        cy = y1
+    return lambda n: ((n.get("x", 0) - cx) ** 2 + (n.get("y", 0) - cy) ** 2) ** 0.5
+
+
+def cmd_rect(idx, args):
+    """Find nodes/groups within a rectangle on the canvas."""
+    if len(args) < 4:
+        die("rect requires 4 coordinates: <x1> <y1> <x2> <y2>\n"
+            "Use 'inf' / '-inf' for semi-infinite edges.")
+
+    x1 = _parse_coord(args[0])
+    y1 = _parse_coord(args[1])
+    x2 = _parse_coord(args[2])
+    y2 = _parse_coord(args[3])
+
+    # Normalize so x1 <= x2, y1 <= y2.
+    if x1 > x2:
+        x1, x2 = x2, x1
+    if y1 > y2:
+        y1, y2 = y2, y1
+
+    flow_filter = None
+    group_filter = None
+    summary = False
+    full = False
+    i = 4
+    while i < len(args):
+        if args[i] == "--flow" and i + 1 < len(args):
+            flow_filter = args[i + 1]
+            i += 2
+        elif args[i] == "--group" and i + 1 < len(args):
+            group_filter = args[i + 1]
+            i += 2
+        elif args[i] == "--summary":
+            summary = True
+            i += 1
+        elif args[i] == "--full":
+            full = True
+            i += 1
+        else:
+            die(f"unknown rect argument: {args[i]}")
+
+    # Determine candidate set.
+    if group_filter:
+        node = idx["by_id"].get(group_filter)
+        if not node or node.get("type") != "group":
+            die(f"group not found: {group_filter}")
+        member_ids = collect_group_node_ids(group_filter, idx)
+        candidates = [idx["by_id"][mid] for mid in member_ids if mid in idx["by_id"]]
+    elif flow_filter:
+        candidates = idx["by_z"].get(flow_filter, [])
+    else:
+        candidates = list(idx["by_id"].values())
+
+    results = [n for n in candidates if _overlaps_rect(n, x1, y1, x2, y2)]
+    results.sort(key=_make_rect_sort_key(x1, y1, x2, y2))
+    output_nodes(results, idx, summary, full)
+
+
+def cmd_nearby(idx, args):
+    """Find nodes/groups near a given node or group."""
+    if not args:
+        die("nearby requires an <id> argument")
+    nid = args[0]
+    node = idx["by_id"].get(nid)
+    if not node:
+        die(f"node not found: {nid}")
+
+    margin = 100
+    summary = False
+    full = False
+    i = 1
+    while i < len(args):
+        if args[i] == "--margin" and i + 1 < len(args):
+            try:
+                margin = float(args[i + 1])
+            except ValueError:
+                die(f"invalid margin: {args[i + 1]}")
+            i += 2
+        elif args[i] == "--summary":
+            summary = True
+            i += 1
+        elif args[i] == "--full":
+            full = True
+            i += 1
+        else:
+            die(f"unknown nearby argument: {args[i]}")
+
+    ntype = node.get("type", "")
+
+    if ntype == "group":
+        gx = node.get("x", 0)
+        gy = node.get("y", 0)
+        gw = node.get("w", 0)
+        gh = node.get("h", 0)
+        x1 = gx - margin
+        y1 = gy - margin
+        x2 = gx + gw + margin
+        y2 = gy + gh + margin
+        cx, cy = gx + gw / 2, gy + gh / 2
+        # Exclude the group itself and all its members.
+        exclude = set(collect_group_node_ids(nid, idx))
+        exclude.add(nid)
+    else:
+        nx = node.get("x", 0)
+        ny = node.get("y", 0)
+        x1 = nx - margin
+        y1 = ny - margin
+        x2 = nx + margin
+        y2 = ny + margin
+        cx, cy = nx, ny
+        exclude = {nid}
+
+    # Scope to the same flow/subflow.
+    z = node.get("z")
+    candidates = idx["by_z"].get(z, []) if z else list(idx["by_id"].values())
+
+    results = []
+    for n in candidates:
+        if n["id"] in exclude:
+            continue
+        if _overlaps_rect(n, x1, y1, x2, y2):
+            results.append(n)
+
+    # Sort by distance from reference center.
+    results.sort(key=lambda n: (
+        (n.get("x", 0) - cx) ** 2 + (n.get("y", 0) - cy) ** 2
+    ) ** 0.5)
+    output_nodes(results, idx, summary, full)
+
+
 def cmd_search(idx, args):
     type_filter = None
     name_filter = None
@@ -497,6 +695,8 @@ COMMANDS = {
     "subflow-nodes": cmd_subflow_nodes,
     "subflow-instances": cmd_subflow_instances,
     "search": cmd_search,
+    "rect": cmd_rect,
+    "nearby": cmd_nearby,
 }
 
 USAGE = """\
@@ -513,6 +713,8 @@ Commands:
   subflow-nodes <id>                All nodes in a subflow definition
   subflow-instances <id>            All instances of a subflow
   search [--type T] [--name P] [--flow ID]   Flexible search
+  rect <x1> <y1> <x2> <y2> [flags] Nodes/groups within a rectangle
+  nearby <id> [--margin PX]         Nodes/groups near a node or group
 
 Shared flags:
   --summary           Compact one-liner per node instead of JSONL
@@ -526,7 +728,20 @@ connected-specific flags:
   --backward          Only upstream
 
 flow-nodes / group-nodes flags:
-  --sources           Only entry-point nodes (no incoming from within scope)"""
+  --sources           Only entry-point nodes (no incoming from within scope)
+
+rect flags:
+  Coordinates accept 'inf' / '-inf' for semi-infinite edges.
+  Semi-infinite rects auto-sort results by position along the infinite axis.
+  Nodes match by center point, groups match by bounding-box overlap.
+  --flow ID           Only nodes on this flow
+  --group ID          Only nodes in this group
+
+nearby flags:
+  For groups: expands the stored bounding box by margin, excludes own members.
+  For nodes: creates a square of 2*margin centered on the node.
+  Always scoped to the same flow.
+  --margin PX         Expansion margin in pixels (default: 100)"""
 
 
 def main():
