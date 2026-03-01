@@ -93,6 +93,7 @@ NODE_WIDTH_MIN = 100
 NODE_HEIGHT = 30
 
 # Types with inputs=0 in their node definition.
+# NOTE: This must stay in sync with _ENTRY_POINT_TYPES in query-nodered-flows.py.
 NO_INPUT_TYPES = {
     "inject", "link in", "server-events", "server-state-changed",
     "ha-time", "poll-state", "trigger-state", "cronplus",
@@ -402,6 +403,7 @@ def cmd_overlaps(data, idx, subflow_defs, args):
     flow_filter = None
     group_filter = None
     json_output = False
+    exit_code_mode = False
 
     i = 0
     while i < len(args):
@@ -419,6 +421,9 @@ def cmd_overlaps(data, idx, subflow_defs, args):
             i += 2
         elif args[i] == "--json":
             json_output = True
+            i += 1
+        elif args[i] == "--exit-code":
+            exit_code_mode = True
             i += 1
         else:
             die(f"unknown overlaps argument: {args[i]}")
@@ -510,6 +515,9 @@ def cmd_overlaps(data, idx, subflow_defs, args):
                   f'{id2} {type2} "{name2}" {w2}x{h2} @{x2},{y2}'
                   f'  h_gap:{h_gap:.0f} v_gap:{v_gap:.0f}')
 
+    if exit_code_mode and pairs:
+        sys.exit(1)
+
 
 COMMANDS = {
     "node": cmd_node,
@@ -535,6 +543,8 @@ overlaps flags:
   --flow ID      Only check nodes on this flow/tab.
   --group ID     Only check nodes in this group (recursive members).
   --json         Output as JSON array instead of one-liner-per-pair.
+  --exit-code    Exit with code 1 when overlaps are found, 0 when clean.
+                 Enables scripted gate checks (e.g., CI or pre-commit hooks).
 
   Output columns: id type "name" WxH @x,y  ↔  id type "name" WxH @x,y  h_gap:N v_gap:N
   Gaps: negative = overlap by that many px, positive = separated by that many px.

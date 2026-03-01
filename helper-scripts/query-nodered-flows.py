@@ -636,6 +636,100 @@ def cmd_nearby(idx, args):
     output_nodes(results, idx, summary, full)
 
 
+# Types that are legitimate entry points (no incoming wires expected).
+# NOTE: This must stay in sync with NO_INPUT_TYPES in estimate-node-size.py.
+_ENTRY_POINT_TYPES = {
+    "inject", "link in", "server-events", "server-state-changed",
+    "ha-time", "poll-state", "trigger-state", "cronplus",
+    "complete", "catch", "status", "ha-webhook",
+}
+_ORPHAN_SKIP_TYPES = {"tab", "subflow", "group", "comment"}
+
+
+def cmd_orphans(idx, args):
+    """Find nodes with no incoming connections that aren't event triggers."""
+    flags = set()
+    flow_filter = None
+    group_filter = None
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--flow" and i + 1 < len(args):
+            flow_filter = args[i + 1]
+            i += 2
+        elif args[i] == "--group" and i + 1 < len(args):
+            group_filter = args[i + 1]
+            i += 2
+        elif args[i] in ("--summary", "--full", "--dont-follow-links"):
+            flags.add(args[i])
+            i += 1
+        else:
+            die(f"unknown orphans argument: {args[i]}")
+            i += 1
+
+    follow_links = "--dont-follow-links" not in flags
+    summary = "--summary" in flags
+    full = "--full" in flags
+
+    # Determine candidate set
+    if group_filter:
+        candidate_ids = set(collect_group_node_ids(group_filter, idx))
+    elif flow_filter:
+        candidate_ids = set(n["id"] for n in idx["by_z"].get(flow_filter, []))
+    else:
+        candidate_ids = set(idx["by_id"].keys())
+
+    orphans = []
+    for nid in candidate_ids:
+        node = idx["by_id"].get(nid, {})
+        ntype = node.get("type", "")
+
+        # Skip metadata types
+        if ntype in _ORPHAN_SKIP_TYPES:
+            continue
+
+        # Skip legitimate entry-point types
+        if ntype in _ENTRY_POINT_TYPES:
+            continue
+
+        # Skip subflow instances whose definition has 0 input ports (event-driven subflows)
+        if ntype.startswith("subflow:"):
+            sf_id = ntype[len("subflow:"):]
+            sf_def = idx["by_id"].get(sf_id, {})
+            if sf_def.get("type") == "subflow" and len(sf_def.get("in", [])) == 0:
+                continue
+
+        # Skip subflow instance internal nodes that receive from the subflow's in ports
+        z = node.get("z", "")
+        z_node = idx["by_id"].get(z, {})
+        if z_node.get("type") == "subflow":
+            sf_in = z_node.get("in", [])
+            is_subflow_input_target = False
+            for in_port in sf_in:
+                for wire_target in in_port.get("wires", []):
+                    if wire_target.get("id") == nid:
+                        is_subflow_input_target = True
+                        break
+                if is_subflow_input_target:
+                    break
+            if is_subflow_input_target:
+                continue
+
+        # Check for incoming wires
+        has_inc = len(idx["backward"].get(nid, [])) > 0
+
+        # Check for incoming link connections (if following links)
+        if not has_inc and follow_links and ntype == "link in":
+            has_inc = (len(idx["link_in_to_out"].get(nid, [])) > 0 or
+                       len(idx["link_in_to_call"].get(nid, [])) > 0)
+
+        if not has_inc:
+            orphans.append(node)
+
+    orphans.sort(key=lambda n: (n.get("z", ""), n.get("type", ""), n.get("name", "")))
+    output_nodes(orphans, idx, summary, full)
+
+
 def cmd_search(idx, args):
     type_filter = None
     name_filter = None
@@ -697,6 +791,7 @@ COMMANDS = {
     "search": cmd_search,
     "rect": cmd_rect,
     "nearby": cmd_nearby,
+    "orphans": cmd_orphans,
 }
 
 USAGE = """\
@@ -715,6 +810,10 @@ Commands:
   search [--type T] [--name P] [--flow ID]   Flexible search
   rect <x1> <y1> <x2> <y2> [flags] Nodes/groups within a rectangle
   nearby <id> [--margin PX]         Nodes/groups near a node or group
+  orphans [flags]                   Find nodes with no incoming connections
+                                    that aren't event triggers (likely leftovers
+                                    from refactors). Excludes inject, link in,
+                                    server-state-changed, trigger-state, etc.
 
 Shared flags:
   --summary           Compact one-liner per node instead of JSONL
@@ -741,7 +840,12 @@ nearby flags:
   For groups: expands the stored bounding box by margin, excludes own members.
   For nodes: creates a square of 2*margin centered on the node.
   Always scoped to the same flow.
-  --margin PX         Expansion margin in pixels (default: 100)"""
+  --margin PX         Expansion margin in pixels (default: 100)
+
+orphans flags:
+  --flow ID           Only check nodes on this flow
+  --group ID          Only check nodes in this group (recursive)
+  --dont-follow-links Don't consider link connections as incoming"""
 
 
 def main():

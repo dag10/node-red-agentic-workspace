@@ -96,6 +96,19 @@ spacing.
 **Always gather sizes before calculating positions.** The horizontal spacing algorithm
 below depends on knowing the actual width of each node.
 
+**Subflow instances can be much wider than typical nodes.** A subflow instance's
+width depends on its display label, which is either its `name` property (if set)
+or the subflow definition's name. Common examples:
+- "Inovelli Interaction" subflow: 180x75px (5 outputs make it tall too)
+- "Any On / All Off Router" subflow: 200x30px (long name)
+- "Set Brightness for On Entities" subflow: 240x30px (very long name)
+
+These widths mean subflow instances need significantly more horizontal clearance
+than typical 100-160px nodes. When computing column spacing, **always use actual
+measured widths from `estimate-node-size.sh`** -- never assume a default width.
+The edge-to-edge gap formula (`w_prev/2 + HORIZONTAL_GAP + w_next/2`) automatically
+handles this, but only if you measure first.
+
 ## Numeric Constants
 
 These constants are derived from detailed analysis of four hand-crafted flows. Use them
@@ -540,6 +553,58 @@ Position below the main flow line by `TEST_INJECT_OFFSET_Y` (60 px). They connec
 to the point in the chain they are meant to test -- a "test notify" inject connects
 to the notification function, not to the beginning of the chain.
 
+### Interleaving fan-out (two multi-output nodes in the same group)
+
+When a group contains two multi-output nodes (e.g., two Inovelli Interaction subflow
+instances) whose output branches share y coordinates, the branches can interleave
+and cause overlaps. This is the hardest layout pattern to get right.
+
+**Recognition:** Two nodes at different y values in the same column, each with 3+
+outputs, where the lower node's outputs start within the vertical range of the
+upper node's outputs.
+
+**Strategy:**
+1. Lay out the first (upper) node's branches normally.
+2. Before laying out the second node's branches, compute the vertical extent of
+   all branches from the first node (from topmost to bottommost node across all
+   branches).
+3. Start the second node's first branch at least `MIN_VERTICAL_NODE_GAP` (30px)
+   below the bottommost node of the first node's branches.
+4. If this isn't possible (the second node is already positioned within the first
+   node's output range), spread the branches by assigning each multi-output node's
+   targets to non-overlapping y ranges. Use `rect` queries to verify no overlaps
+   exist in the target column's y range.
+
+**Common instance:** Inovelli Interaction subflows in the Switches flow -- each
+group has two Interaction instances (for Up and Down buttons), each with 5 outputs.
+The Down instance's outputs must not overlap with the Up instance's outputs in the
+downstream columns.
+
+## Cleanup: Identify and Remove Orphaned Nodes
+
+When a modification replaces existing nodes with new ones (e.g., swapping direct
+api-call-service chains for a subflow-based pattern), the old nodes may be left in
+place as orphans -- they have no incoming wires but aren't event triggers, so they
+serve no purpose. These orphans frequently cause overlaps because they sit at the
+same coordinates as their replacement nodes.
+
+**After any refactoring modification, check for orphans in affected groups:**
+
+```bash
+bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
+  orphans --group <group_id> --summary
+```
+
+Any nodes returned are candidates for deletion. Verify they're truly unused (no
+incoming wires, not referenced by name from function nodes, etc.) and delete them
+as part of the same batch that performs the refactor.
+
+**When to check:**
+- After replacing direct-action nodes with subflow instances
+- After removing a branch from a switch/router node
+- After any operation that restructures wiring in a group
+- When investigating overlaps (orphans are the most common cause)
+
 ## Step 3: Apply Positions
 
 **Sanity check before applying:** Scan your batch for:
@@ -556,30 +621,38 @@ and groups (setting `x`, `y`, `w`, `h`).
 
 **Always dry-run first** (`--dry-run` flag), review the changes, then apply for real.
 
-## Step 4: Verify
+## Step 4: Verify (hard gate -- must pass before proceeding)
 
-After applying positions, verify the layout is correct:
+After applying positions, verify the layout passes these checks. **Do not proceed
+to documentation or committing until all checks pass.**
 
-1. **Run the overlap detector** on each modified group (most important check):
+1. **Run the overlap detector on each modified group** (catches node-on-node collisions):
    ```bash
-   # Actual overlaps (nodes on top of each other)
    bash helper-scripts/estimate-node-size.sh mynodered/nodered.json \
      overlaps --group <group_id>
-
-   # Spacing violations (nodes closer than MIN_VERTICAL_NODE_GAP)
-   bash helper-scripts/estimate-node-size.sh mynodered/nodered.json \
-     overlaps --gap 30 --group <group_id>
    ```
-   The output shows each overlapping pair with actual gap values. Fix any pairs with
-   negative gaps (actual overlap) or gaps below the required minimum.
+   **This must report "No overlaps found." for every modified group.** If any
+   overlaps are reported, fix them before continuing.
 
-2. **Check the whole flow** for overlaps you might have missed:
+2. **Run the overlap detector on the entire flow** (catches cross-group overlaps):
    ```bash
    bash helper-scripts/estimate-node-size.sh mynodered/nodered.json \
      overlaps --flow <flow_id>
    ```
+   **This must report "No overlaps found."** Cross-group overlaps can occur when
+   nodes from different groups share similar y coordinates (e.g., link out nodes
+   from one group overlapping with nodes from an adjacent group's branch).
 
-3. **Check inter-group spacing** using the `nearby` spatial query:
+3. **Check spacing violations** (advisory -- fix if practical, but not a hard blocker):
+   ```bash
+   bash helper-scripts/estimate-node-size.sh mynodered/nodered.json \
+     overlaps --gap 30 --group <group_id>
+   ```
+   Pairs with gaps between 0-30px are very tight. Fix these if the affected nodes
+   were part of the current modification; leave pre-existing tight spacing alone
+   unless it's trivial to fix.
+
+4. **Check inter-group spacing** using the `nearby` spatial query:
    ```bash
    bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
      nearby <group_id> --margin 20 --summary
@@ -587,13 +660,14 @@ After applying positions, verify the layout is correct:
    If any groups appear in the results, they're within `GROUP_VERTICAL_GAP` (20 px) of
    the modified group and may need to be shifted.
 
-4. **Check group containment**: every node's (x, y) should fall within its group's
+5. **Check group containment**: every node's (x, y) should fall within its group's
    bounding box with appropriate padding.
 
-5. **Check grid alignment**: every x, y, w, h value in the batch must be a multiple of 20
+6. **Check grid alignment**: every x, y, w, h value in the batch must be a multiple of 20
    and an integer. No floats, no off-grid values.
 
-6. If anything looks wrong, adjust and re-apply.
+7. If anything fails checks 1-2, fix the positions and re-run the batch. If items 4-6
+   need fixes, apply them as a follow-up batch.
 
 ## Quick Reference Checklist
 
@@ -616,10 +690,11 @@ Use this as a shorthand when performing a relayout:
 11. Sanity check: no node has y=200 or x=200 (defaults); all positions are multiples of 20; all are integers
 12. **Phase 1:** Dry-run batch update (node positions + group sizes), review output
 13. Apply Phase 1 batch (remove `--dry-run`)
-14. **Run overlap detector**: `estimate-node-size.sh ... overlaps --group <id>` on each
-    modified group to catch node-node collisions. Then `overlaps --gap 30 --group <id>`
-    for spacing violations. Fix any issues before proceeding.
-15. **Phase 2:** Resolve overlaps — use `nearby <group_id> --margin 20` on each modified
+14. **HARD GATE -- Run overlap detector**: `estimate-node-size.sh ... overlaps --group <id>` on each
+    modified group. Must report "No overlaps found." Also `overlaps --flow <flow_id>` for cross-group
+    overlaps. Fix any overlaps before proceeding. Then `overlaps --gap 30 --group <id>` for spacing
+    warnings (advisory, fix if practical).
+15. **Phase 2:** Resolve group overlaps -- use `nearby <group_id> --margin 20` on each modified
     group. If groups appear in results, compute shift deltas. Use
     `rect -inf <group_bottom> inf inf --flow <flow_id>` to find everything below that
     needs shifting. Build a SECOND batch of update-node commands to shift affected groups

@@ -326,6 +326,28 @@ Results are sorted by distance from the reference center (closest first).
 - `--margin PX`: Expansion margin in pixels (default: 100).
 - `--summary`, `--full`: Output format.
 
+#### orphans [flags]
+
+Find nodes that have no incoming connections and are not event trigger types.
+These are likely leftover nodes from refactors -- they were replaced by new nodes
+but never deleted, and now sit unused at their old positions (often causing
+overlaps with the replacement nodes).
+
+Excludes legitimate entry-point types: `inject`, `link in`, `server-events`,
+`server-state-changed`, `ha-time`, `poll-state`, `trigger-state`, `cronplus`,
+`complete`, `catch`, `status`, `ha-webhook`.
+
+```
+query-nodered-flows.sh flows.json orphans --flow <flow_id> --summary
+query-nodered-flows.sh flows.json orphans --group <group_id> --summary
+```
+
+Flags:
+- `--flow ID`: Only check nodes on this flow.
+- `--group ID`: Only check nodes in this group (recursive).
+- `--dont-follow-links`: Don't consider link connections as incoming.
+- `--summary`, `--full`: Output format.
+
 ### The --sources flag
 
 `--sources` on `flow-nodes` and `group-nodes` identifies **scope-local entry
@@ -472,6 +494,19 @@ edge-to-edge gap in both dimensions. Negative gap = overlap, positive = separati
 
 Use `--gap 30` (the `MIN_VERTICAL_NODE_GAP`) to find all spacing violations, not
 just actual overlaps.
+
+### "Are there orphaned nodes left over from a refactor?"
+
+After replacing nodes with a new pattern (e.g., direct api-call-service chains
+replaced by subflow-based routing), check for orphans:
+
+```
+query-nodered-flows.sh flows.json orphans --flow <flow_id> --summary
+```
+
+Orphaned nodes often cause overlaps because they sit at the same coordinates as
+their replacement nodes. Delete them as part of the refactor unless they serve
+a clear purpose.
 
 ### "Will my new node positions collide with existing nodes?"
 

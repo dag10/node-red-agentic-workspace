@@ -593,6 +593,16 @@ bash helper-scripts/summarize-nodered-flows-diff.sh --git mynodered/nodered.json
 # 5. Relayout new/modified groups
 # Follow the /relayout-nodered-flows skill to position new nodes and size groups
 
+# 5b. Verify no overlaps on modified flows
+bash helper-scripts/estimate-node-size.sh mynodered/nodered.json \
+  overlaps --flow <flow_id>
+# Must report "No overlaps found." Fix any overlaps before proceeding.
+
+# 5c. Check for orphaned nodes (if you replaced/refactored existing nodes)
+bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
+  orphans --flow <flow_id> --summary
+# Delete any orphans found in modified groups
+
 # 6. Update documentation (check AFFECTED DOCUMENTATION in diff output)
 # Update docs/flows/*.md, docs/subflows/*.md, mynodered/CLAUDE.md as needed
 
@@ -624,6 +634,10 @@ bash upload-flows.sh
   member nodes too. Use with care.
 - **Wire and link are idempotent.** Running the same wire/link command twice
   is safe -- it just reports "already wired/linked".
+- **Check for orphans after refactors.** When replacing nodes with a new
+  pattern, the old nodes may be left behind as orphans causing overlaps.
+  Run `query-nodered-flows.sh ... orphans --flow <id> --summary` after
+  any structural refactor and delete unused nodes.
 
 ### When to use Link nodes
 
