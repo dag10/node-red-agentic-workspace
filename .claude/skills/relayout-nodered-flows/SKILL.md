@@ -560,31 +560,40 @@ and groups (setting `x`, `y`, `w`, `h`).
 
 After applying positions, verify the layout is correct:
 
-1. **Read back affected groups** with `group-nodes <id> --summary` to confirm positions
-   look reasonable.
-2. **Check for node-node overlaps within groups**: for each group that was modified,
-   query each new node's neighborhood to ensure no overlapping nodes:
+1. **Run the overlap detector** on each modified group (most important check):
    ```bash
-   # For each new node, check if anything is too close (within 30px vertical gap)
-   bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
-     nearby <node_id> --margin 30 --summary
+   # Actual overlaps (nodes on top of each other)
+   bash helper-scripts/estimate-node-size.sh mynodered/nodered.json \
+     overlaps --group <group_id>
+
+   # Spacing violations (nodes closer than MIN_VERTICAL_NODE_GAP)
+   bash helper-scripts/estimate-node-size.sh mynodered/nodered.json \
+     overlaps --gap 30 --group <group_id>
    ```
-   Any non-wired-neighbor node returned is a potential overlap. Verify that the
-   edge-to-edge gap is at least `MIN_VERTICAL_NODE_GAP` (30px) using actual sizes.
-3. **Check group containment**: every node's (x, y) should fall within its group's
-   bounding box with appropriate padding.
-4. **Check inter-group spacing** using the `nearby` spatial query:
+   The output shows each overlapping pair with actual gap values. Fix any pairs with
+   negative gaps (actual overlap) or gaps below the required minimum.
+
+2. **Check the whole flow** for overlaps you might have missed:
+   ```bash
+   bash helper-scripts/estimate-node-size.sh mynodered/nodered.json \
+     overlaps --flow <flow_id>
+   ```
+
+3. **Check inter-group spacing** using the `nearby` spatial query:
    ```bash
    bash helper-scripts/query-nodered-flows.sh mynodered/nodered.json \
      nearby <group_id> --margin 20 --summary
    ```
    If any groups appear in the results, they're within `GROUP_VERTICAL_GAP` (20 px) of
    the modified group and may need to be shifted.
+
+4. **Check group containment**: every node's (x, y) should fall within its group's
+   bounding box with appropriate padding.
+
 5. **Check grid alignment**: every x, y, w, h value in the batch must be a multiple of 20
    and an integer. No floats, no off-grid values.
-6. **Check minimum vertical gaps**: every pair of vertically adjacent nodes must have at
-   least `MIN_VERTICAL_NODE_GAP` (30px) edge-to-edge gap. Edge gap = `abs(y2 - y1) - (h1/2 + h2/2)`.
-7. If anything looks wrong, adjust and re-apply.
+
+6. If anything looks wrong, adjust and re-apply.
 
 ## Quick Reference Checklist
 
@@ -607,12 +616,13 @@ Use this as a shorthand when performing a relayout:
 11. Sanity check: no node has y=200 or x=200 (defaults); all positions are multiples of 20; all are integers
 12. **Phase 1:** Dry-run batch update (node positions + group sizes), review output
 13. Apply Phase 1 batch (remove `--dry-run`)
-14. **Verify with spatial queries**: for each new node, run `nearby <id> --margin 30`.
-    Any unexpected neighbors indicate a collision. Check edge-to-edge gaps with actual sizes.
+14. **Run overlap detector**: `estimate-node-size.sh ... overlaps --group <id>` on each
+    modified group to catch node-node collisions. Then `overlaps --gap 30 --group <id>`
+    for spacing violations. Fix any issues before proceeding.
 15. **Phase 2:** Resolve overlaps — use `nearby <group_id> --margin 20` on each modified
     group. If groups appear in results, compute shift deltas. Use
     `rect -inf <group_bottom> inf inf --flow <flow_id>` to find everything below that
     needs shifting. Build a SECOND batch of update-node commands to shift affected groups
     and ALL their member nodes. Dry-run, review, then apply.
-16. **Final verify**: run `nearby <group_id> --margin 20` on each modified group — results
-    should be empty (no groups within the minimum gap). Check inter-group spacing (20px gaps).
+16. **Final verify**: `overlaps --flow <flow_id>` should show no overlaps on the flow.
+    `nearby <group_id> --margin 20` on each modified group should return no groups.

@@ -447,6 +447,32 @@ is useful when:
    query-nodered-flows.sh flows.json connected <link_in_id> --dont-follow-links --summary
    ```
 
+### "Are any nodes overlapping on this flow?"
+
+Use the `overlaps` command from `estimate-node-size.sh` to detect node pairs whose
+rendered bounding boxes overlap or are too close. This uses actual node dimensions
+(not just center points) for accurate collision detection.
+
+```
+# Find all overlapping nodes on a flow
+estimate-node-size.sh flows.json overlaps --flow <flow_id>
+
+# Find nodes within a group that violate minimum spacing (30px)
+estimate-node-size.sh flows.json overlaps --gap 30 --group <group_id>
+
+# JSON output for programmatic use
+estimate-node-size.sh flows.json overlaps --flow <flow_id> --json
+```
+
+Output shows each overlapping pair with their sizes, positions, and the actual
+edge-to-edge gap in both dimensions. Negative gap = overlap, positive = separation:
+```
+<id1> <type1> "<name1>" WxH @x,y  ↔  <id2> <type2> "<name2>" WxH @x,y  h_gap:-100 v_gap:-30
+```
+
+Use `--gap 30` (the `MIN_VERTICAL_NODE_GAP`) to find all spacing violations, not
+just actual overlaps.
+
 ### "Will my new node positions collide with existing nodes?"
 
 Use the spatial queries during relayout to detect collisions before they happen:

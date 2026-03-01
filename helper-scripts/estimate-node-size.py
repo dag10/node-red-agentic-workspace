@@ -12,6 +12,7 @@ import json
 import math
 import os
 import sys
+from collections import defaultdict
 
 # Import shared utilities from query tool.
 _dir = os.path.dirname(os.path.abspath(__file__))
@@ -374,11 +375,148 @@ def cmd_batch(data, idx, subflow_defs, args):
     print(json.dumps(result, indent=2))
 
 
+# ---------------------------------------------------------------------------
+# Overlap detection
+# ---------------------------------------------------------------------------
+
+# Types that don't have a meaningful rendered bbox for overlap checking.
+_SKIP_OVERLAP_TYPES = {"tab", "subflow", "group", "comment"}
+
+
+def _node_bbox(node, subflow_defs):
+    """Return (left, top, right, bottom, w, h) for a node, or None if not spatial."""
+    ntype = node.get("type", "")
+    if ntype in _SKIP_OVERLAP_TYPES:
+        return None
+    x = node.get("x")
+    y = node.get("y")
+    if x is None or y is None:
+        return None
+    w, h = estimate_node_size(node, subflow_defs)
+    return (x - w / 2, y - h / 2, x + w / 2, y + h / 2, w, h)
+
+
+def cmd_overlaps(data, idx, subflow_defs, args):
+    """Find pairs of nodes whose rendered bounding boxes overlap or are too close."""
+    gap = 0
+    flow_filter = None
+    group_filter = None
+    json_output = False
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--gap" and i + 1 < len(args):
+            try:
+                gap = float(args[i + 1])
+            except ValueError:
+                die(f"invalid gap: {args[i + 1]}")
+            i += 2
+        elif args[i] == "--flow" and i + 1 < len(args):
+            flow_filter = args[i + 1]
+            i += 2
+        elif args[i] == "--group" and i + 1 < len(args):
+            group_filter = args[i + 1]
+            i += 2
+        elif args[i] == "--json":
+            json_output = True
+            i += 1
+        else:
+            die(f"unknown overlaps argument: {args[i]}")
+
+    # Collect candidate nodes.
+    if group_filter:
+        gnode = idx["by_id"].get(group_filter)
+        if not gnode or gnode.get("type") != "group":
+            die(f"group not found: {group_filter}")
+        member_ids = collect_group_node_ids(group_filter, idx)
+        candidates = [idx["by_id"][mid] for mid in member_ids if mid in idx["by_id"]]
+    elif flow_filter:
+        candidates = idx["by_z"].get(flow_filter, [])
+    else:
+        candidates = list(idx["by_id"].values())
+
+    # Compute bboxes, grouped by flow.
+    half_gap = gap / 2
+    by_z = defaultdict(list)
+    for node in candidates:
+        bb = _node_bbox(node, subflow_defs)
+        if bb is None:
+            continue
+        left, top, right, bottom, w, h = bb
+        # Expand bbox by half_gap for gap checking.
+        entry = (node, w, h, left - half_gap, top - half_gap,
+                 right + half_gap, bottom + half_gap,
+                 left, top, right, bottom)  # actual edges (without gap)
+        by_z[node.get("z", "")].append(entry)
+
+    # Find overlapping pairs.
+    pairs = []
+    for z, entries in by_z.items():
+        entries.sort(key=lambda e: e[3])  # sort by expanded left edge
+        for i in range(len(entries)):
+            n1, w1, h1, el1, et1, er1, eb1, al1, at1, ar1, ab1 = entries[i]
+            for j in range(i + 1, len(entries)):
+                n2, w2, h2, el2, et2, er2, eb2, al2, at2, ar2, ab2 = entries[j]
+                if el2 > er1:
+                    break  # sorted by left; no more possible overlaps with n1
+                if et1 <= eb2 and eb1 >= et2:
+                    # Bboxes overlap (considering gap). Compute actual gaps.
+                    h_gap = max(al1, al2) - min(ar1, ar2)
+                    v_gap = max(at1, at2) - min(ab1, ab2)
+                    pairs.append((n1, w1, h1, n2, w2, h2, h_gap, v_gap))
+
+    if not pairs:
+        if json_output:
+            print("[]")
+        else:
+            print("No overlaps found.")
+        return
+
+    # Sort by severity: most overlapping first (smallest gap sum).
+    pairs.sort(key=lambda p: p[6] + p[7])
+
+    if json_output:
+        result = []
+        for n1, w1, h1, n2, w2, h2, h_gap, v_gap in pairs:
+            result.append({
+                "node1": {
+                    "id": n1["id"], "type": n1.get("type", ""),
+                    "name": n1.get("name", ""),
+                    "x": n1.get("x"), "y": n1.get("y"), "w": w1, "h": h1,
+                    "g": n1.get("g", ""),
+                },
+                "node2": {
+                    "id": n2["id"], "type": n2.get("type", ""),
+                    "name": n2.get("name", ""),
+                    "x": n2.get("x"), "y": n2.get("y"), "w": w2, "h": h2,
+                    "g": n2.get("g", ""),
+                },
+                "h_gap": round(h_gap, 1),
+                "v_gap": round(v_gap, 1),
+            })
+        print(json.dumps(result, indent=2))
+    else:
+        for n1, w1, h1, n2, w2, h2, h_gap, v_gap in pairs:
+            id1 = n1["id"]
+            type1 = n1.get("type", "")
+            name1 = n1.get("name", "")
+            x1, y1 = n1.get("x"), n1.get("y")
+            id2 = n2["id"]
+            type2 = n2.get("type", "")
+            name2 = n2.get("name", "")
+            x2, y2 = n2.get("x"), n2.get("y")
+            print(f'{id1} {type1} "{name1}" {w1}x{h1} @{x1},{y1}'
+                  f'  ↔  '
+                  f'{id2} {type2} "{name2}" {w2}x{h2} @{x2},{y2}'
+                  f'  h_gap:{h_gap:.0f} v_gap:{v_gap:.0f}')
+
+
 COMMANDS = {
     "node": cmd_node,
     "group": cmd_group,
     "group-layout": cmd_group_layout,
     "batch": cmd_batch,
+    "overlaps": cmd_overlaps,
 }
 
 USAGE = """\
@@ -389,6 +527,18 @@ Commands:
   group <id>             Output: width height (bounding box of members + padding)
   group-layout <id>      Output: JSON with all member node sizes + group bbox
   batch                  Read JSON array of IDs from stdin, output JSON results
+  overlaps [flags]       Find overlapping node pairs (uses actual rendered sizes)
+
+overlaps flags:
+  --gap PX       Minimum required edge-to-edge gap (default: 0 = actual overlaps only).
+                 With --gap 30, finds any pair closer than 30px edge-to-edge.
+  --flow ID      Only check nodes on this flow/tab.
+  --group ID     Only check nodes in this group (recursive members).
+  --json         Output as JSON array instead of one-liner-per-pair.
+
+  Output columns: id type "name" WxH @x,y  ↔  id type "name" WxH @x,y  h_gap:N v_gap:N
+  Gaps: negative = overlap by that many px, positive = separated by that many px.
+  Two nodes overlap visually when BOTH h_gap < 0 AND v_gap < 0.
 
 Examples:
   bash helper-scripts/estimate-node-size.sh mynodered/nodered.json node abc123
@@ -398,7 +548,16 @@ Examples:
   # Output: 800 400
 
   echo '["id1","id2"]' | bash helper-scripts/estimate-node-size.sh flows.json batch
-  # Output: {"id1": {"w": 160, "h": 30}, ...}"""
+  # Output: {"id1": {"w": 160, "h": 30}, ...}
+
+  bash helper-scripts/estimate-node-size.sh mynodered/nodered.json overlaps --flow abc123
+  # Find all overlapping node pairs on a specific flow
+
+  bash helper-scripts/estimate-node-size.sh mynodered/nodered.json overlaps --gap 30 --group def456
+  # Find nodes within a group that are closer than 30px edge-to-edge
+
+  bash helper-scripts/estimate-node-size.sh mynodered/nodered.json overlaps --json
+  # JSON output with full details for programmatic use"""
 
 
 def main():
