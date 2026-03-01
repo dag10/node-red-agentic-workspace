@@ -265,7 +265,7 @@ Don't suggest deep-dives if:
 - The changes are all within a single flow and don't introduce cross-cutting
   concerns.
 
-## 6. Mark analysis complete
+## 6. Mark analysis complete and commit
 
 After passing the quality checklist, mark this analysis as complete by snapshotting
 the flows file you analyzed and staging it:
@@ -278,3 +278,9 @@ git -C mynodered add nodered-last-analyzed.json
 This checkpoint tells the calling script that you successfully analyzed this exact
 version of the flows. If you don't reach this step, the caller knows the analysis
 didn't finish and can retry.
+
+Then commit all the analysis updates in the `mynodered/` submodule as a single
+commit. Stage all changed files (doc updates, CLAUDE.md, nodered-last-analyzed.json,
+and any synced nodered.json / nodered-last-downloaded.json changes) and commit with
+a message summarizing what was analyzed. Follow the commit message format from
+CLAUDE.md.
