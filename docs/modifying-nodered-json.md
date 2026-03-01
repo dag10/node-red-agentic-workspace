@@ -625,6 +625,30 @@ bash upload-flows.sh
 - **Wire and link are idempotent.** Running the same wire/link command twice
   is safe -- it just reports "already wired/linked".
 
+### When to use Link nodes
+
+Use `link out` / `link in` pairs instead of direct wires when a connection
+would span a long distance across different groups. This typically happens
+with "secondary" or "alias" connections -- where multiple switch groups
+all target the same shared action node in a distant group. The primary
+group (close to the target) can wire directly, but distant groups should
+use link nodes to avoid long visual wires crossing the canvas.
+
+**Guidelines:**
+- **Short-distance, same group or adjacent groups:** Use direct wires.
+- **Long-distance cross-group connections (hundreds+ pixels):** Use link
+  nodes. One `link in` in the target group can receive from multiple
+  `link out` nodes in different source groups.
+- **Cross-flow connections:** Always use link nodes (direct cross-flow
+  wires are a warning sign).
+- **Don't overuse link nodes for nearby connections** -- they add
+  indirection that makes flows harder to trace visually.
+
+**Example:** The Office Hue Remote group uses link nodes to reach action
+nodes in the Office Switch group. The Kitchen Ceiling and Kitchen Counter
+switch groups use link nodes to reach shared scene action nodes in the
+Kitchen Scenes group.
+
 ## HA Node Type Defaults Reference
 
 The `add-node` command auto-injects default fields for the following HA node
