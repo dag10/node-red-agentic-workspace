@@ -286,6 +286,16 @@ port the wires come from: bottom/later outputs → below the main line, top/earl
 outputs → above. See "Guard chain with shared fallback" in Special Patterns for
 the most common instance of this.
 
+**Branch continuation (downstream of a fork):**
+When a topology forks into branches at different y values, each branch maintains
+its y coordinate through all subsequent single-output continuations. A node with
+one parent inherits its parent's y (per the "single node in a column" rule above).
+This means that when you reposition a branch target (e.g., moving a convergence
+node down by 60 px), you must **cascade the y change to all downstream nodes in
+that branch**. Do not move a branch node without also moving its continuations —
+leaving downstream nodes at their old y creates crossing wires where branches
+visually swap positions.
+
 ### 5b. Verify positions with spatial queries (collision check)
 
 After computing all node positions but **before applying them**, use spatial queries
@@ -551,11 +561,14 @@ which output is which.
 The shared convergence node goes **below** the main flow line by
 `BRANCH_VERTICAL_SPACING` (60 px), since the fail wires come from the bottom
 output port. This makes each condition's fail wire angle down visibly to the
-fallback target.
+fallback target. **Both branches maintain their y through all downstream
+continuations** (per the branch continuation rule in Step 5) — the success
+path's downstream nodes stay at main_y, and the fallback's downstream nodes
+stay at main_y + 60.
 
 ```
-[check A] ──0──> [check B] ──0──> [check C] ──0──> [success action]
-    └──1──────────────┴──1──────────────┴──1──> [fallback action]
+[check A] ──0──> [check B] ──0──> [check C] ──0──> [success action] ──> [success cont.]
+    └──1──────────────┴──1──────────────┴──1──> [fallback action] ──> [fallback cont.]
                                                    (y = main_y + 60)
 ```
 
