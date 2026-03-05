@@ -634,6 +634,36 @@ group has two Interaction instances (for Up and Down buttons), each with 5 outpu
 The Down instance's outputs must not overlap with the Up instance's outputs in the
 downstream columns.
 
+## Inter-Group Wiring: Use Link Nodes, Not Direct Wires
+
+Nodes inside one group must **never** be wired directly to nodes inside a
+different group. Direct inter-group wires create long, tangled connections that
+cross group boundaries and make flows unreadable. Use **Link In / Link Out**
+(or **Link Call**) nodes to bridge between groups instead.
+
+**When to use links:**
+- A node in group A needs to send a message to a node in group B → add a
+  `link out` in group A and a `link in` in group B, then link them.
+- A node in group A needs to call a subroutine in group B and get a response →
+  use a `link call` in group A and a `link in` / `link out` pair in group B.
+
+**Exceptions (direct wires are fine):**
+- A node in a group wired to a **groupless node** — some nodes exist outside
+  groups (e.g., human-created nodes not yet organized, or subflow input/output
+  nodes which cannot be placed in groups). Direct wires to/from these are
+  acceptable.
+
+**Follow local patterns:** When adding link nodes, look at the groups involved
+and nearby groups on the same flow for existing link in/out usage patterns.
+Match the naming conventions (if link nodes have names), placement within the
+group (link outs typically at the right edge, link ins at the left edge), and
+wiring style already in use.
+
+**When to check:** After any modification that creates wires between nodes,
+verify that no direct wire crosses a group boundary (both endpoints in
+different groups). If one does, replace it with link nodes as part of the
+same modification.
+
 ## Cleanup: Identify and Remove Orphaned Nodes
 
 When a modification replaces existing nodes with new ones (e.g., swapping direct
