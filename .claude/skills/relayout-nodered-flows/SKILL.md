@@ -277,6 +277,15 @@ node vertically among its targets:
 **Parallel replicated chains** (same logic repeated per device):
 Stack at `PARALLEL_CHAIN_SPACING` (60 px) between chains.
 
+**Convergence node (multiple incoming wires from the main flow line):**
+When a node receives wires from multiple upstream nodes that all sit on the main
+flow line (same y), the convergence node **must** be offset vertically —
+otherwise the incoming wires overlap and the topology becomes unreadable.
+Offset by `BRANCH_VERTICAL_SPACING` (60 px) in the direction matching the output
+port the wires come from: bottom/later outputs → below the main line, top/earlier
+outputs → above. See "Guard chain with shared fallback" in Special Patterns for
+the most common instance of this.
+
 ### 5b. Verify positions with spatial queries (collision check)
 
 After computing all node positions but **before applying them**, use spatial queries
@@ -519,10 +528,42 @@ When existing nodes have been rewired but not repositioned:
 
 Recognize these common layout patterns and apply the appropriate rules:
 
-### Guard chain (linear pipeline of checks)
-All nodes at the **same y**, spaced horizontally. Common for sequences of
-`api-current-state` checks. The group will be short (h ~ 80-82 px) with nodes
-vertically centered.
+### Guard chain (linear pipeline of single-output checks)
+All nodes at the **same y**, spaced horizontally. This applies when each check
+node has **only one output** continuing to the next node (no branching). The
+group will be short (h ~ 80-82 px) with nodes vertically centered. If the check
+nodes are multi-output (e.g., each has a fail output going to a shared fallback),
+see "Guard chain with shared fallback" below instead.
+
+### Guard chain with shared fallback (serial AND with early-exit)
+
+A chain of multi-output condition checks where each node's primary output
+(output 0 / pass) continues to the next check, and each node's secondary output
+(output 1 / fail) skips ahead to a shared fallback/convergence node. Common for
+sequences of `api-current-state` checks that implement AND logic with early exit.
+
+**The problem:** If all nodes (including the convergence target) sit at the same y,
+the pass-through wires and fail-to-convergence wires all run horizontally along
+the same line, making the branching topology completely invisible. You can't tell
+which output is which.
+
+**Layout rule:** The pass-through chain stays on the main flow line (same y).
+The shared convergence node goes **below** the main flow line by
+`BRANCH_VERTICAL_SPACING` (60 px), since the fail wires come from the bottom
+output port. This makes each condition's fail wire angle down visibly to the
+fallback target.
+
+```
+[check A] ──0──> [check B] ──0──> [check C] ──0──> [success action]
+    └──1──────────────┴──1──────────────┴──1──> [fallback action]
+                                                   (y = main_y + 60)
+```
+
+**Generalization:** Any time multiple nodes on the same y each have a secondary
+output wiring to the **same convergence target**, that target must be vertically
+offset from the main flow line. The offset direction matches the output port
+position (bottom outputs → below, top outputs → above). This is a specific
+instance of the convergence node rule described in Step 5.
 
 ### Fan-out (one node to many actions)
 Center the source node vertically among its outputs. Space outputs at
